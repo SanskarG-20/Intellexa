@@ -1,62 +1,111 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import "./styles.css";
+
+/* ── Headline structure: lines of words, with accent flags ── */
+const HEADLINE_LINES = [
+  [
+    { text: "AI", accent: false },
+    { text: "That", accent: false },
+    { text: "Explains", accent: false },
+  ],
+  [
+    { text: "Every", accent: true },
+    { text: "Decision", accent: true },
+  ],
+  [
+    { text: "It", accent: false },
+    { text: "Makes.", accent: false },
+  ],
+];
+
+/* ── Pipeline steps data ─────────────────────────────────── */
+const PIPELINE_STEPS = [
+  { num: "01", title: "Auth Layer", desc: "Clerk session. User context secured." },
+  { num: "02", title: "Autopsy", desc: "Gemini dissects your question for bias and assumptions." },
+  { num: "03", title: "Context", desc: "Past queries retrieved and weighted." },
+  { num: "04", title: "Generation", desc: "Groq LLaMA produces the primary answer." },
+  { num: "05", title: "Expansion", desc: "3 ethical perspectives applied." },
+  { num: "06", title: "Ethics Gate", desc: "Bias detected, flagged, corrected." },
+  { num: "07", title: "Explain", desc: "Why, how, and how confident." },
+];
 
 function App() {
   const [isScrolled, setIsScrolled] = useState(false);
-  const [headlineWords, setHeadlineWords] = useState([]);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isHeroVisible, setIsHeroVisible] = useState(false);
+  const pipelineRef = useRef(null);
 
+  /* Scroll listener for navbar */
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 60);
-    };
-
+    const handleScroll = () => setIsScrolled(window.scrollY > 50);
     handleScroll();
     window.addEventListener("scroll", handleScroll);
-
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  /* Trigger hero animations on mount */
   useEffect(() => {
-    const headline = "AI That Thinks Transparently. Answers Responsibly.";
-    setHeadlineWords(headline.split(" "));
-
-    const animationTimer = window.setTimeout(() => {
-      setIsHeroVisible(true);
-    }, 20);
-
-    return () => window.clearTimeout(animationTimer);
+    const timer = setTimeout(() => setIsHeroVisible(true), 80);
+    return () => clearTimeout(timer);
   }, []);
 
-  const isGradientWord = (word) => {
-    const cleaned = word.replace(/[^a-zA-Z]/g, "");
-    return cleaned === "Transparently" || cleaned === "Responsibly";
-  };
+  /* IntersectionObserver for pipeline steps */
+  useEffect(() => {
+    const steps = document.querySelectorAll(".pipeline-step");
+    if (!steps.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.2 }
+    );
+
+    steps.forEach((step) => observer.observe(step));
+    return () => observer.disconnect();
+  }, []);
+
+  const handleNavClick = () => setIsMobileMenuOpen(false);
+
+  /* Running word index for stagger delay */
+  let wordIndex = 0;
 
   return (
     <div className="landing-page">
-      <div className="bg-blob blob-1" />
-      <div className="bg-blob blob-2" />
+      {/* Fixed glow blobs */}
+      <div className="glow-blob glow-blob-1" />
+      <div className="glow-blob glow-blob-2" />
 
       <div className="page-content">
+        {/* ── NAVBAR ──────────────────────────────── */}
         <header className={`navbar ${isScrolled ? "navbar-scrolled" : ""}`}>
           <div className="navbar-inner">
             <a className="logo" href="#home">
-              Intellexa
+              [ INTELLEXA ]
             </a>
 
             <nav className="nav-center" aria-label="Primary">
-              <a href="#how-it-works">How It Works</a>
-              <a href="#features">Features</a>
-              <a href="#trust-score">Trust Score</a>
+              <a href="#how-it-works">System</a>
+              <a href="#pipeline">Pipeline</a>
+              <a href="#trust-score">Trust Layer</a>
               <a href="#demo">Demo</a>
             </nav>
 
             <div className="nav-right">
-              <button className="try-button" type="button">
-                Try Intellexa
+              <button className="nav-cta" type="button">
+                ▸ Initialize
               </button>
-              <button className="hamburger" type="button" aria-label="Open menu">
+              <button
+                className="hamburger"
+                type="button"
+                aria-label="Open menu"
+                onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+              >
                 <span />
                 <span />
                 <span />
@@ -65,105 +114,136 @@ function App() {
           </div>
         </header>
 
+        {/* Mobile nav overlay */}
+        <nav className={`mobile-nav ${isMobileMenuOpen ? "is-open" : ""}`}>
+          <a href="#how-it-works" onClick={handleNavClick}>System</a>
+          <a href="#pipeline" onClick={handleNavClick}>Pipeline</a>
+          <a href="#trust-score" onClick={handleNavClick}>Trust Layer</a>
+          <a href="#demo" onClick={handleNavClick}>Demo</a>
+        </nav>
+
         <main>
+          {/* ── HERO ─────────────────────────────── */}
           <section className="hero" id="home">
-            <div className={`hero-badge ${isHeroVisible ? "is-visible" : ""}`}>
-              <span>✦ Ethical AI · Explainable · Trust-Aware</span>
-            </div>
+            <div className="hero-container">
+              {/* Floating HUD chips */}
+              <div className="hud-chips">
+                <span className="hud-chip">| Perspective Autopsy ⟳ |</span>
+                <span className="hud-chip">| Trust Score: 87 |</span>
+                <span className="hud-chip">| Ethical Check ✓ |</span>
+                <span className="hud-chip">| Multi-Model ◈ |</span>
+              </div>
 
-            <h1 className="hero-headline" aria-label="AI That Thinks Transparently. Answers Responsibly.">
-              {headlineWords.map((word, index) => (
-                <span
-                  key={`${word}-${index}`}
-                  className={`hero-word ${isHeroVisible ? "is-visible" : ""} ${
-                    isGradientWord(word) ? "gradient-word" : ""
-                  }`}
-                  style={{ transitionDelay: `${0.3 + index * 0.07}s` }}
+              {/* Hero content */}
+              <div className="hero-content">
+                {/* Badge */}
+                <div
+                  className={`hero-badge ${isHeroVisible ? "is-visible" : ""}`}
+                  style={{ transitionDelay: "0.3s" }}
                 >
-                  {word}
-                  {index < headlineWords.length - 1 ? "\u00A0" : ""}
-                </span>
+                  // TRUST-AWARE AI SYSTEM
+                </div>
+
+                {/* Headline: word-by-word reveal */}
+                <h1 className="hero-headline">
+                  {HEADLINE_LINES.map((line, lineIdx) => {
+                    const lineWords = line.map((wordObj) => {
+                      const idx = wordIndex++;
+                      return (
+                        <span
+                          key={`w-${idx}`}
+                          className={`hero-word ${isHeroVisible ? "is-visible" : ""} ${
+                            wordObj.accent ? "accent-word" : ""
+                          }`}
+                          style={{
+                            transitionDelay: `${0.5 + idx * 0.06}s`,
+                          }}
+                        >
+                          {wordObj.text}
+                          {"\u00A0"}
+                        </span>
+                      );
+                    });
+
+                    return (
+                      <span key={`line-${lineIdx}`}>
+                        {lineWords}
+                        {lineIdx < HEADLINE_LINES.length - 1 && (
+                          <span className="hero-line-break">{"\n"}</span>
+                        )}
+                      </span>
+                    );
+                  })}
+                </h1>
+
+                {/* Subtext */}
+                <p
+                  className={`hero-subtext ${isHeroVisible ? "is-visible" : ""}`}
+                  style={{ transitionDelay: "1.1s" }}
+                >
+                  Intellexa runs a 7-layer reasoning pipeline — analyzing your
+                  thinking, generating multi-perspective answers, detecting bias,
+                  and explaining every step. No black box.
+                </p>
+
+                {/* Buttons */}
+                <div
+                  className={`hero-buttons ${isHeroVisible ? "is-visible" : ""}`}
+                  style={{ transitionDelay: "1.3s" }}
+                >
+                  <button className="hero-btn-primary" type="button">
+                    ▸ Start Reasoning
+                  </button>
+                  <button className="hero-btn-secondary" type="button">
+                    [ View Pipeline ]
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Scroll indicator */}
+            <span className="scroll-indicator" aria-hidden="true">
+              ↓ scroll
+            </span>
+          </section>
+
+          {/* ── PIPELINE ─────────────────────────── */}
+          <section className="pipeline-section" id="pipeline" ref={pipelineRef}>
+            <span className="pipeline-label">// 01 — SYSTEM PIPELINE</span>
+            <h2 className="pipeline-heading">The Reasoning Stack</h2>
+            <hr className="pipeline-divider" />
+
+            <div className="pipeline-grid">
+              {PIPELINE_STEPS.map((step, i) => (
+                <div
+                  className="pipeline-step"
+                  key={step.num}
+                  style={{ transitionDelay: `${i * 0.06}s` }}
+                >
+                  <span className="step-num">{step.num}</span>
+                  <div className="step-accent-line" />
+                  <div className="step-title">{step.title}</div>
+                  <p className="step-desc">{step.desc}</p>
+                </div>
               ))}
-            </h1>
-
-            <p
-              className={`hero-subtext ${isHeroVisible ? "is-visible" : ""}`}
-              style={{ transitionDelay: "0.85s" }}
-            >
-              Intellexa analyzes your thinking, generates multi-perspective
-              answers, checks for bias, and explains every decision — so you
-              always know why.
-            </p>
-
-            <div
-              className={`hero-cta-row ${isHeroVisible ? "is-visible" : ""}`}
-              style={{ transitionDelay: "1.0s" }}
-            >
-              <button className="hero-cta-primary" type="button">
-                Start Thinking Better →
-              </button>
-              <button className="hero-cta-secondary" type="button">
-                See How It Works
-              </button>
             </div>
 
-            <p
-              className={`trust-row ${isHeroVisible ? "is-visible" : ""}`}
-              style={{ transitionDelay: "1.0s" }}
-            >
-              <span className="trust-stars">★★★★★</span> Trusted by researchers,
-              students, and teams who need honest AI
-            </p>
-
-            <div
-              className={`hero-visual-card ${isHeroVisible ? "is-visible" : ""}`}
-              style={{ transitionDelay: "1.2s" }}
-            >
-              <div className="visual-pills">
-                <span className="visual-pill visual-pill-autopsy">
-                  Perspective Autopsy
-                </span>
-                <span className="visual-pill visual-pill-answer">
-                  Multi-Perspective Answer
-                </span>
-                <span className="visual-pill visual-pill-trust">
-                  Trust Score: 87
-                </span>
-              </div>
-
-              <div className="visual-divider" />
-
-              <div className="visual-placeholder" role="presentation">
-                <span>
-                  Context mapped from previous prompts and authenticated memory.
-                </span>
-                <span>
-                  Ethical checks identified framing risks and added fairness
-                  mitigation.
-                </span>
-                <span>
-                  Final answer includes reasoning trace, assumptions, and trust
-                  metadata.
-                </span>
-              </div>
+            {/* Status bar */}
+            <div className="pipeline-status-bar">
+              <span className="status-left">
+                <span className="status-dot">●</span>
+                PIPELINE STATUS: ACTIVE
+              </span>
+              <span className="status-right">
+                7 layers · 3 models · &lt;2s avg response
+              </span>
             </div>
           </section>
 
-          <section className="section" id="how-it-works">
-            <h2>How It Works</h2>
-          </section>
-
-          <section className="section" id="features">
-            <h3>Features</h3>
-          </section>
-
-          <section className="section" id="trust-score">
-            <h4>Trust Score</h4>
-          </section>
-
-          <section className="section" id="demo">
-            <h4>Demo</h4>
-          </section>
+          {/* Remaining sections — future prompts */}
+          <section id="how-it-works" />
+          <section id="trust-score" />
+          <section id="demo" />
         </main>
       </div>
     </div>
@@ -171,3 +251,4 @@ function App() {
 }
 
 export default App;
+
