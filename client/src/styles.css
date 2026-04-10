@@ -1653,9 +1653,119 @@ button {
 
 .dashboard-chat-card {
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto 1fr;
   gap: 16px;
   min-height: calc(100vh - 132px);
+}
+
+.dashboard-chat-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) 1fr;
+  gap: 14px;
+  min-height: 0;
+}
+
+.dashboard-chat-main {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 12px;
+}
+
+.chat-sidebar {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.015);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-sidebar-header {
+  border-bottom: 1px solid var(--border);
+  padding: 12px;
+}
+
+.chat-sidebar-kicker {
+  margin: 0 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.chat-sidebar-title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--text);
+}
+
+.chat-sidebar-list {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.chat-sidebar-state {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.chat-sidebar-item {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.chat-sidebar-item:hover {
+  border-color: rgba(77, 255, 210, 0.45);
+  background: rgba(77, 255, 210, 0.07);
+}
+
+.chat-sidebar-item.is-active {
+  border-color: rgba(77, 255, 210, 0.7);
+  background: rgba(77, 255, 210, 0.12);
+}
+
+.chat-sidebar-preview {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.chat-sidebar-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.chat-sidebar-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: #ffb1aa;
+  background: rgba(255, 95, 87, 0.08);
 }
 
 .dashboard-header {
@@ -1822,6 +1932,51 @@ button {
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.chat-perspective-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chat-perspective-tab {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.chat-perspective-tab:hover {
+  color: var(--text);
+  border-color: rgba(77, 255, 210, 0.45);
+}
+
+.chat-perspective-tab.is-active {
+  color: var(--accent);
+  border-color: rgba(77, 255, 210, 0.65);
+  background: rgba(77, 255, 210, 0.1);
+}
+
+.chat-perspective-tab:focus-visible {
+  outline: 2px solid rgba(77, 255, 210, 0.55);
+  outline-offset: 1px;
+}
+
+.chat-perspective-body {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .chat-meta-grid {
@@ -2229,6 +2384,14 @@ button {
     min-height: auto;
   }
 
+  .dashboard-chat-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-sidebar {
+    max-height: 230px;
+  }
+
   .dashboard-header {
     flex-direction: column;
     align-items: stretch;
@@ -2249,6 +2412,10 @@ button {
 
   .chat-meta-grid {
     grid-template-columns: 1fr;
+  }
+
+  .chat-sidebar-preview {
+    white-space: normal;
   }
 
   .chat-input-actions {
@@ -2314,6 +2481,14 @@ button {
   .chat-history {
     min-height: 260px;
     padding: 10px;
+  }
+
+  .chat-sidebar-header {
+    padding: 10px;
+  }
+
+  .chat-sidebar-list {
+    padding: 8px;
   }
 
   .chat-message {
