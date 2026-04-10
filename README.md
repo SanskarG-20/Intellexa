@@ -75,15 +75,8 @@ Data Layer:
 7. Explainability engine generates rationale and context trace.
 8. Final response is returned with trust score, confidence, and risk signals.
 
-## Screenshots / Demo
-- Landing Page: insert screenshot here
-- Sign In / Sign Up Flow: insert screenshot here
-- Dashboard / Chat Experience: insert screenshot here
-- Explainability Panel: insert screenshot here
-
 Demo links:
-- Live URL: add deployment link
-- Demo Video: add walkthrough link
+- Live URL: [add deployment link](https://intellexa-lac.vercel.app/)
 
 ## Installation Guide
 Prerequisites:
