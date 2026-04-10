@@ -1,6 +1,6 @@
 import json
 import httpx
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from app.core.config import settings
 
 class AuditService:
@@ -48,7 +48,7 @@ RULES:
         """
         api_key = settings.GEMINI_API_KEY.strip()
         if not api_key:
-            return {"error": "Gemini API key not configured."}
+            return cls._build_local_audit(answer)
 
         model = settings.GEMINI_MODEL.strip()
         url = cls.GEMINI_API_URL_TEMPLATE.format(model=model)
@@ -71,7 +71,8 @@ RULES:
             },
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             try:
                 response = await client.post(
                     f"{url}?key={api_key}",
@@ -85,9 +86,28 @@ RULES:
                     return json.loads(raw_content)
                 else:
                     print(f"Audit engine error ({response.status_code}): {response.text}")
-                    return {}
+                    return cls._build_local_audit(answer)
             except Exception as e:
                 print(f"Failed to audit response: {str(e)}")
-                return {}
+                return cls._build_local_audit(answer)
+
+    @staticmethod
+    def _build_local_audit(answer: str) -> Dict[str, Any]:
+        text = " ".join(str(answer or "").split()).lower()
+        flagged_terms = {"always", "never", "inferior", "superior", "all women", "all men"}
+        has_bias_signal = any(term in text for term in flagged_terms)
+
+        if has_bias_signal:
+            return {
+                "bias_detected": True,
+                "severity": "medium",
+                "action_taken": "flagged",
+            }
+
+        return {
+            "bias_detected": False,
+            "severity": "low",
+            "action_taken": "none",
+        }
 
 audit_service = AuditService()

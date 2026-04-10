@@ -1,5 +1,10 @@
+from pathlib import Path
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
@@ -21,6 +26,9 @@ class Settings(BaseSettings):
     # Supabase Settings
     SUPABASE_URL: str = ""
     SUPABASE_KEY: str = ""
+
+    # Search API Settings (optional — enables SerpAPI over DuckDuckGo fallback)
+    SERPAPI_API_KEY: str = ""
 
     # Global User ID (Mock)
     MOCK_USER_ID: str = "demo_user"
@@ -46,7 +54,7 @@ class Settings(BaseSettings):
         return False
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )

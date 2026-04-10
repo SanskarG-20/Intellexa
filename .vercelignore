@@ -1,0 +1,7 @@
+.git/
+node_modules/
+server/
+client/node_modules/
+client/dist/
+*.log
+**/__pycache__/

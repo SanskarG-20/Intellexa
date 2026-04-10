@@ -16,6 +16,9 @@ class ChatResponse(BaseModel):
     ethical_perspectives: Optional[dict] = Field(None, description="Ethical analysis of the response.")
     audit_results: Optional[dict] = Field(None, description="AI ethics audit evaluation.")
     perspective_autopsy: Optional[dict] = Field(None, description="Detailed cognitive analysis of the user's query.")
+    explanation: Optional[list[str]] = Field(None, description="Step-by-step reasoning justifying the generated response.")
+    trust_evaluation: Optional[dict] = Field(None, description="Final reliability assessment and trust score of the AI output.")
+    neutral_reframe: Optional[dict] = Field(None, description="Bias-free neutral reformulations of the user's original query.")
 
 class ConversationEntry(BaseModel):
     """
