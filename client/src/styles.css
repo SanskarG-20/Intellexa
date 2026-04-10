@@ -1643,7 +1643,7 @@ button {
 }
 
 .dashboard-card {
-  width: min(980px, 100%);
+  width: min(1180px, 100%);
   background: var(--bg-card);
   border: 1px solid var(--border);
   padding: 28px;
@@ -1659,14 +1659,16 @@ button {
 }
 
 .dashboard-chat-layout {
-  display: grid;
-  grid-template-columns: minmax(220px, 260px) 1fr;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
   gap: 14px;
   min-height: 0;
 }
 
 .dashboard-chat-main {
   min-width: 0;
+  flex: 1 1 auto;
   display: grid;
   grid-template-rows: 1fr auto;
   gap: 12px;
@@ -1679,6 +1681,7 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex: 0 0 280px;
 }
 
 .chat-sidebar-header {
@@ -2385,11 +2388,14 @@ button {
   }
 
   .dashboard-chat-layout {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
   }
 
   .chat-sidebar {
-    max-height: 230px;
+    flex-basis: 220px;
+    max-height: none;
   }
 
   .dashboard-header {
@@ -2476,6 +2482,16 @@ button {
 
   .dashboard-card {
     padding: 18px 14px;
+  }
+
+  .dashboard-chat-layout {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+  }
+
+  .chat-sidebar {
+    flex-basis: 170px;
   }
 
   .chat-history {

@@ -75,7 +75,7 @@ const METRICS = [
     sub: "Every query passes 7 transparent stages",
   },
   {
-    target: 2,
+    target: 10,
     decimal: true,
     prefix: "<",
     suffix: "s",

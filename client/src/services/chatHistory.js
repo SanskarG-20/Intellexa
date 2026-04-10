@@ -11,7 +11,7 @@ const supabase =
 function ensureSupabaseClient() {
   if (!supabase) {
     throw new Error(
-      "Missing Supabase config. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in client env."
+      "Missing Supabase config. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in client/.env (VITE_ keys are required for browser access)."
     );
   }
 
