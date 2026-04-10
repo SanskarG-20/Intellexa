@@ -293,8 +293,13 @@ button {
 }
 
 .hero-container {
-  max-width: 1200px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  min-height: 100vh;
+  max-width: 1400px;
   margin: 0 auto;
+  padding: 0 28px;
   width: 100%;
   position: relative;
 }
@@ -328,10 +333,10 @@ button {
   animation-delay: 0.4s;
 }
 
-.hud-chip:nth-child(1) { top: 18%; left: 2%; animation-delay: 0.4s; }
-.hud-chip:nth-child(2) { top: 22%; right: 3%; animation-delay: 0.55s; }
-.hud-chip:nth-child(3) { bottom: 28%; left: 3%; animation-delay: 0.7s; }
-.hud-chip:nth-child(4) { bottom: 32%; right: 4%; animation-delay: 0.85s; }
+.hud-chip:nth-child(1) { top: 15%; left: 48%; animation-delay: 0.4s; }
+.hud-chip:nth-child(2) { top: 20%; right: 2%; animation-delay: 0.55s; }
+.hud-chip:nth-child(3) { bottom: 30%; right: 3%; animation-delay: 0.7s; }
+.hud-chip:nth-child(4) { bottom: 25%; left: 48%; animation-delay: 0.85s; }
 
 @keyframes chipFadeIn {
   to {
@@ -342,9 +347,10 @@ button {
 
 /* ── HERO CONTENT ─────────────────────────────────────────── */
 .hero-content {
-  text-align: center;
+  text-align: left;
   max-width: 900px;
-  margin: 0 auto;
+  margin: 0;
+  padding-right: 40px;
   position: relative;
   z-index: 1;
 }
@@ -408,7 +414,7 @@ button {
   font-weight: 300;
   color: var(--text-muted);
   max-width: 560px;
-  margin: 32px auto 0;
+  margin: 32px 0 0;
   line-height: 1.8;
   opacity: 0;
   transform: translateY(16px);
@@ -425,7 +431,7 @@ button {
   margin-top: 48px;
   display: flex;
   gap: 16px;
-  justify-content: center;
+  justify-content: flex-start;
   opacity: 0;
   transform: translateY(16px);
   transition: opacity 0.6s ease, transform 0.6s ease;
@@ -491,6 +497,79 @@ button {
 @keyframes scrollBounce {
   from { transform: translateX(-50%) translateY(0); }
   to   { transform: translateX(-50%) translateY(6px); }
+}
+
+/* ── HERO SPLINE ──────────────────────────────────────────── */
+.hero-spline {
+  position: relative;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.spline-wrapper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.spline-wrapper::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 180px;
+  height: 100%;
+  background: linear-gradient(to right, #0C0C15 0%, transparent 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.spline-wrapper::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 200px;
+  background: linear-gradient(to top, #0C0C15 0%, transparent 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.spline-skeleton {
+  position: absolute;
+  inset: 0;
+  background: rgba(77,255,210,0.03);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  transition: opacity 1s ease;
+}
+
+.spline-skeleton span {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.15em;
+}
+
+.spline-skeleton.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spline-container {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+.spline-container.is-visible {
+  opacity: 1;
 }
 
 /* ── PIPELINE SECTION ─────────────────────────────────────── */
@@ -1016,6 +1095,7 @@ button {
   text-align: center;
   max-width: 800px;
   margin: 0 auto;
+  position: relative;
 }
 
 .terminal-frame {
@@ -1025,8 +1105,72 @@ button {
   padding: 64px 56px;
   position: relative;
   overflow: visible;
+  z-index: 1;
   box-shadow: 0 0 80px rgba(77,255,210,0.07),
               0 0 160px rgba(123,111,255,0.05);
+}
+
+/* Background Spline Instance */
+.cta-spline-background {
+  position: absolute;
+  right: -80px;
+  bottom: -60px;
+  width: 400px;
+  height: 400px;
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cta-spline-background::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100px;
+  height: 100%;
+  background: linear-gradient(to right, #0C0C15 0%, transparent 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.cta-spline-background::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 100px;
+  background: linear-gradient(to top, #0C0C15 0%, transparent 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.cta-spline-skeleton {
+  position: absolute;
+  inset: 0;
+  background: rgba(77,255,210,0.01);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  transition: opacity 1s ease;
+}
+
+.cta-spline-skeleton.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cta-spline-container {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+.cta-spline-container.is-visible {
+  opacity: 1;
 }
 
 /* 4-corner brackets for terminal frame */
@@ -1225,7 +1369,27 @@ button {
   }
 
   .hero {
-    padding: 0 20px;
+    padding: 0;
+  }
+
+  .hero-container {
+    grid-template-columns: 1fr;
+    padding: 0;
+  }
+
+  .hero-spline {
+    height: 50vh;
+    width: 100%;
+    order: -1;
+  }
+
+  .hero-content {
+    text-align: center;
+    padding: 40px 20px 80px;
+  }
+  
+  .hero-subtext {
+    margin: 32px auto 0;
   }
 
   .hud-chips {
@@ -1329,6 +1493,18 @@ button {
     gap: 12px;
     text-align: center;
     padding: 20px 20px;
+  }
+
+  .cta-headline {
+    font-size: 32px;
+  }
+
+  .cta-button {
+    width: 100%;
+  }
+
+  .cta-spline-background {
+    display: none;
   }
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import Spline from '@splinetool/react-spline';
 import "./styles.css";
 
 /* ── Headline structure: lines of words, with accent flags ── */
@@ -107,6 +108,8 @@ function App() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isHeroVisible, setIsHeroVisible] = useState(false);
+  const [isSplineLoaded, setIsSplineLoaded] = useState(false);
+  const [isCtaSplineLoaded, setIsCtaSplineLoaded] = useState(false);
   const pipelineRef = useRef(null);
 
   /* Scroll listener for navbar */
@@ -268,9 +271,8 @@ function App() {
                       return (
                         <span
                           key={`w-${idx}`}
-                          className={`hero-word ${isHeroVisible ? "is-visible" : ""} ${
-                            wordObj.accent ? "accent-word" : ""
-                          }`}
+                          className={`hero-word ${isHeroVisible ? "is-visible" : ""} ${wordObj.accent ? "accent-word" : ""
+                            }`}
                           style={{
                             transitionDelay: `${0.5 + idx * 0.06}s`,
                           }}
@@ -313,6 +315,24 @@ function App() {
                   <button className="hero-btn-secondary" type="button">
                     [ View Pipeline ]
                   </button>
+                </div>
+              </div>
+
+              {/* Spline Right Column */}
+              <div className="hero-spline">
+                <div className="spline-wrapper">
+                  {/* Fading Skeleton */}
+                  <div className={`spline-skeleton ${isSplineLoaded ? "fade-out" : ""}`}>
+                    <span>[ LOADING 3D RENDER... ]</span>
+                  </div>
+
+                  {/* Spline Component */}
+                  <div className={`spline-container ${isSplineLoaded ? "is-visible" : ""}`}>
+                    <Spline
+                      scene="https://prod.spline.design/EciRVKyhBcQYj-h8/scene.splinecode"
+                      onLoad={() => setIsSplineLoaded(true)}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -489,6 +509,20 @@ function App() {
 
           {/* ── TERMINAL CTA ─────────────────────── */}
           <section className="cta-section fade-up" id="demo">
+
+            {/* Background Spline Instance */}
+            <div className="cta-spline-background">
+              {/* Spline Loading Skeleton */}
+              <div className={`cta-spline-skeleton ${isCtaSplineLoaded ? "fade-out" : ""}`} />
+
+              <div className={`cta-spline-container ${isCtaSplineLoaded ? "is-visible" : ""}`}>
+                <Spline
+                  scene="https://prod.spline.design/EciRVKyhBcQYj-h8/scene.splinecode"
+                  onLoad={() => setIsCtaSplineLoaded(true)}
+                />
+              </div>
+            </div>
+
             <div className="terminal-frame">
               {/* 4-corner brackets */}
               <div className="terminal-bracket bracket-tl" />
