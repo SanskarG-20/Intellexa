@@ -2,7 +2,12 @@ import { SignOutButton, useUser } from "@clerk/clerk-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ChatHistorySidebar from "../components/ChatHistorySidebar";
 import { useApiService } from "../services/apiService";
-import { getChatById, getUserChats, saveMessage } from "../services/chatHistory";
+import {
+  getChatById,
+  getUserChats,
+  persistStructuredPayloadForChat,
+  saveMessage,
+} from "../services/chatHistory";
 
 const PERSPECTIVE_TABS = [
   { key: "utilitarian", label: "Utilitarian" },
@@ -222,6 +227,31 @@ function buildStructuredPayload(data) {
   };
 }
 
+function hasStructuredInsights(structured) {
+  if (!isPlainObject(structured)) {
+    return false;
+  }
+
+  const hasAutopsy = Boolean(structured.autopsy);
+  const hasPerspectives = Boolean(
+    structured.perspectives &&
+      Object.values(structured.perspectives).some(
+        (value) => typeof value === "string" && value.trim()
+      )
+  );
+  const hasExplanation = Boolean(
+    Array.isArray(structured.explanationItems) && structured.explanationItems.length
+  );
+  const hasEthicalCheck = Boolean(
+    isPlainObject(structured.ethicalCheck) && Object.keys(structured.ethicalCheck).length
+  );
+  const hasTrustBlock =
+    (structured.trustScore !== null && structured.trustScore !== undefined) ||
+    (typeof structured.confidence === "string" && structured.confidence.trim());
+
+  return hasAutopsy || hasPerspectives || hasExplanation || hasEthicalCheck || hasTrustBlock;
+}
+
 function PerspectiveTabs({ perspectives }) {
   const availableTabs = PERSPECTIVE_TABS.filter((tab) => {
     const value = perspectives?.[tab.key];
@@ -304,6 +334,134 @@ function ExplanationPanel({ items }) {
   );
 }
 
+function ChatInsightsPanel({ message, onClose }) {
+  const structured = message?.structured;
+
+  if (!message || !hasStructuredInsights(structured)) {
+    return (
+      <aside className="chat-insights-panel" aria-live="polite">
+        <header className="chat-insights-header">
+          <div>
+            <p className="chat-insights-kicker">Response Insights</p>
+            <h2 className="chat-insights-title">Analysis Panel</h2>
+          </div>
+        </header>
+        <div className="chat-insights-empty">
+          <p>Select View Analysis on any assistant response to see the full breakdown here.</p>
+        </div>
+      </aside>
+    );
+  }
+
+  const hasAutopsy = Boolean(structured.autopsy);
+  const hasPerspectives = Boolean(
+    structured.perspectives &&
+      Object.values(structured.perspectives).some(
+        (value) => typeof value === "string" && value.trim()
+      )
+  );
+  const hasExplanation = Boolean(structured.explanationItems?.length);
+  const hasEthicalCheck = Boolean(
+    structured.ethicalCheck && Object.keys(structured.ethicalCheck).length
+  );
+  const hasTrustBlock =
+    (structured.trustScore !== null && structured.trustScore !== undefined) ||
+    (typeof structured.confidence === "string" && structured.confidence.trim());
+
+  return (
+    <aside className="chat-insights-panel" aria-live="polite">
+      <header className="chat-insights-header">
+        <div>
+          <p className="chat-insights-kicker">Response Insights</p>
+          <h2 className="chat-insights-title">Analysis Panel</h2>
+        </div>
+        <button type="button" className="chat-insights-close" onClick={onClose}>
+          Hide
+        </button>
+      </header>
+
+      <div className="chat-insights-body">
+        {hasAutopsy ? (
+          <section className="chat-structured-panel chat-autopsy-panel">
+            <h3 className="chat-panel-title chat-autopsy-title">Perspective Autopsy</h3>
+            <p className="chat-autopsy-kicker">Before answer generation</p>
+
+            <div className="chat-autopsy-group">
+              <p className="chat-autopsy-label">Assumptions</p>
+              {structured.autopsy.assumptions.length ? (
+                <ul className="chat-panel-list">
+                  {structured.autopsy.assumptions.map((item, index) => (
+                    <li key={`insight-autopsy-assumption-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="chat-autopsy-empty">No assumptions detected.</p>
+              )}
+            </div>
+
+            <div className="chat-autopsy-group">
+              <p className="chat-autopsy-label">Bias Detected</p>
+              <p className="chat-autopsy-bias">{structured.autopsy.biasDetected || "none"}</p>
+            </div>
+
+            <div className="chat-autopsy-group">
+              <p className="chat-autopsy-label">Missing Angles</p>
+              {structured.autopsy.missingAngles.length ? (
+                <ul className="chat-panel-list">
+                  {structured.autopsy.missingAngles.map((item, index) => (
+                    <li key={`insight-autopsy-angle-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="chat-autopsy-empty">No missing angles identified.</p>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {hasPerspectives ? <PerspectiveTabs perspectives={structured.perspectives} /> : null}
+
+        {hasExplanation ? <ExplanationPanel items={structured.explanationItems} /> : null}
+
+        {hasEthicalCheck ? (
+          <section className="chat-structured-panel">
+            <h3 className="chat-panel-title">Ethical Check</h3>
+            <div className="chat-meta-grid">
+              {Object.entries(structured.ethicalCheck).map(([key, value]) => (
+                <div key={`insight-${key}`} className="chat-meta-item">
+                  <span className="chat-meta-label">{formatLabel(key)}</span>
+                  <span className="chat-meta-value">{formatValue(value)}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {hasTrustBlock ? (
+          <section className="chat-structured-panel">
+            <h3 className="chat-panel-title">Trust</h3>
+            <div className="chat-meta-grid">
+              {structured.trustScore !== null && structured.trustScore !== undefined ? (
+                <div className="chat-meta-item">
+                  <span className="chat-meta-label">Trust Score</span>
+                  <span className="chat-meta-value">{formatValue(structured.trustScore)}</span>
+                </div>
+              ) : null}
+
+              {typeof structured.confidence === "string" && structured.confidence.trim() ? (
+                <div className="chat-meta-item">
+                  <span className="chat-meta-label">Confidence</span>
+                  <span className="chat-meta-value">{structured.confidence.trim()}</span>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
 function createChatMessage(role, content, structured = null, options = {}) {
   return {
     id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -322,20 +480,32 @@ function buildMessagesFromSavedChat(chat) {
   const items = [];
   const question = String(chat?.message || "").trim();
   const answer = String(chat?.response || "").trim();
+  const structuredPayload = isPlainObject(chat?.structured_payload)
+    ? chat.structured_payload
+    : null;
+  let assistantMessageId = null;
 
   if (question) {
     items.push(createChatMessage("user", question));
   }
 
   if (answer) {
-    items.push(createChatMessage("assistant", answer));
+    const assistantMessage = createChatMessage("assistant", answer, structuredPayload);
+    items.push(assistantMessage);
+
+    if (hasStructuredInsights(assistantMessage.structured)) {
+      assistantMessageId = assistantMessage.id;
+    }
   }
 
   if (!items.length) {
     items.push(createChatMessage("assistant", "This chat item has no saved content."));
   }
 
-  return items;
+  return {
+    items,
+    assistantMessageId,
+  };
 }
 
 function Dashboard() {
@@ -356,6 +526,8 @@ function Dashboard() {
   const [historyErrorMessage, setHistoryErrorMessage] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [activeInsightMessageId, setActiveInsightMessageId] = useState(null);
+  const [insightLoadingMessageId, setInsightLoadingMessageId] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [thinkingStepIndex, setThinkingStepIndex] = useState(0);
   const [typingState, setTypingState] = useState({
@@ -368,6 +540,13 @@ function Dashboard() {
   const typedMessageIdsRef = useRef(new Set());
   const autoScrollEnabledRef = useRef(true);
   const previousMessageCountRef = useRef(messages.length);
+
+  const activeInsightMessage = activeInsightMessageId
+    ? messages.find(
+        (message) =>
+          message.id === activeInsightMessageId && hasStructuredInsights(message.structured)
+      ) || null
+    : null;
 
   const loadHistory = useCallback(
     async (preferredChatId = null) => {
@@ -583,14 +762,28 @@ function Dashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!activeInsightMessageId) {
+      return;
+    }
+
+    const stillExists = messages.some((message) => message.id === activeInsightMessageId);
+    if (!stillExists) {
+      setActiveInsightMessageId(null);
+    }
+  }, [activeInsightMessageId, messages]);
+
   const handleSelectHistoryItem = useCallback(async (chatId) => {
-    if (!chatId) {
+    if (!chatId || isLoading || insightLoadingMessageId) {
       return;
     }
 
     stopTypingAnimation();
     setHistoryErrorMessage("");
+    setErrorMessage("");
+    setInputValue("");
     setActiveChatId(chatId);
+    setActiveInsightMessageId(null);
     autoScrollEnabledRef.current = true;
 
     try {
@@ -601,7 +794,9 @@ function Dashboard() {
         return;
       }
 
-      setMessages(buildMessagesFromSavedChat(chat));
+      const savedChatMessages = buildMessagesFromSavedChat(chat);
+      setMessages(savedChatMessages.items);
+      setActiveInsightMessageId(savedChatMessages.assistantMessageId);
     } catch (error) {
       const message =
         error instanceof Error
@@ -609,7 +804,7 @@ function Dashboard() {
           : "Failed to load selected chat history.";
       setHistoryErrorMessage(message);
     }
-  }, [stopTypingAnimation]);
+  }, [insightLoadingMessageId, isLoading, stopTypingAnimation]);
 
   const handleStartNewChat = useCallback(() => {
     stopTypingAnimation();
@@ -617,11 +812,92 @@ function Dashboard() {
     typedMessageIdsRef.current = new Set();
 
     setActiveChatId(null);
+    setActiveInsightMessageId(null);
+    setInsightLoadingMessageId(null);
     setErrorMessage("");
     setHistoryErrorMessage("");
     setInputValue("");
     setMessages([createChatMessage("assistant", WELCOME_MESSAGE)]);
   }, [stopTypingAnimation]);
+
+  const handleViewInsightsForMessage = useCallback(
+    async (messageId, prompt, hasInsights) => {
+      if (!messageId || isLoading || insightLoadingMessageId) {
+        return;
+      }
+
+      if (hasInsights) {
+        setActiveInsightMessageId((current) => (current === messageId ? null : messageId));
+        return;
+      }
+
+      const safePrompt = String(prompt || "").trim();
+      if (!safePrompt) {
+        setErrorMessage("Cannot generate insights for this response because the original query is missing.");
+        return;
+      }
+
+      setInsightLoadingMessageId(messageId);
+      setErrorMessage("");
+
+      try {
+        const data = await sendMessage(safePrompt);
+        const structuredPayload = buildStructuredPayload(data);
+
+        if (!hasStructuredInsights(structuredPayload)) {
+          throw new Error("No structured analysis was returned for this response.");
+        }
+
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  structured: structuredPayload,
+                }
+              : message
+          )
+        );
+        setActiveInsightMessageId(messageId);
+
+        if (activeChatId) {
+          try {
+            await persistStructuredPayloadForChat(activeChatId, structuredPayload);
+            setChatHistoryItems((prev) =>
+              prev.map((item) =>
+                item.id === activeChatId
+                  ? {
+                      ...item,
+                      structured_payload: structuredPayload,
+                    }
+                  : item
+              )
+            );
+          } catch {
+            // Ignore persistence fallback errors; in-memory insights remain available.
+          }
+        }
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : "";
+        setErrorMessage(toFriendlyChatErrorMessage(rawMessage));
+      } finally {
+        setInsightLoadingMessageId(null);
+      }
+    },
+    [activeChatId, insightLoadingMessageId, isLoading, sendMessage]
+  );
+
+  useEffect(() => {
+    stopTypingAnimation();
+    autoScrollEnabledRef.current = true;
+    typedMessageIdsRef.current = new Set();
+    setActiveInsightMessageId(null);
+    setInsightLoadingMessageId(null);
+    setErrorMessage("");
+    setHistoryErrorMessage("");
+    setInputValue("");
+    setMessages([createChatMessage("assistant", WELCOME_MESSAGE)]);
+  }, [stopTypingAnimation, userId]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -640,18 +916,24 @@ function Dashboard() {
       const data = await sendMessage(nextMessage);
       const structuredPayload = buildStructuredPayload(data);
       const aiText = structuredPayload.answer || "I could not generate a response just now.";
+      const assistantMessage = createChatMessage("assistant", aiText, structuredPayload, {
+        animate: true,
+      });
 
       setMessages((prev) => [
         ...prev,
-        createChatMessage("assistant", aiText, structuredPayload, {
-          animate: true,
-        }),
+        assistantMessage,
       ]);
+
+      if (hasStructuredInsights(assistantMessage.structured)) {
+        setActiveInsightMessageId(assistantMessage.id);
+      }
 
       if (userId) {
         try {
-          const saved = await saveMessage(userId, nextMessage, aiText);
-          await loadHistory(saved?.id || null);
+          const saved = await saveMessage(userId, nextMessage, aiText, structuredPayload);
+          const preferredChatId = activeChatId ? null : saved?.id || null;
+          await loadHistory(preferredChatId);
         } catch (historyError) {
           const message =
             historyError instanceof Error
@@ -719,204 +1001,139 @@ function Dashboard() {
             onSelectChat={handleSelectHistoryItem}
             onNewChat={handleStartNewChat}
             isNewChatDisabled={isLoading}
+            isInteractionDisabled={Boolean(isLoading || insightLoadingMessageId)}
           />
 
           <div className="dashboard-chat-main">
-            <div
-              className="chat-history"
-              ref={historyRef}
-              onScroll={handleHistoryScroll}
-              aria-live="polite"
-              aria-busy={isLoading}
-            >
-              {messages.map((message) => {
-                const isAssistant = message.role === "assistant";
-                const isTypingMessage = isAssistant && typingState.messageId === message.id;
-                const displayedContent = isTypingMessage ? typingState.visibleText : message.content;
-                const responseText = displayedContent || (isTypingMessage ? "" : message.content);
-                const structured = message.structured;
-                const hasAutopsy = Boolean(structured?.autopsy);
-                const hasPerspectives = Boolean(
-                  structured?.perspectives &&
-                    Object.values(structured.perspectives).some(
-                      (value) => typeof value === "string" && value.trim()
-                    )
-                );
-                const hasExplanation = Boolean(structured?.explanationItems?.length);
-                const hasEthicalCheck = Boolean(
-                  structured?.ethicalCheck && Object.keys(structured.ethicalCheck).length
-                );
-                const hasTrustBlock =
-                  (structured?.trustScore !== null && structured?.trustScore !== undefined) ||
-                  (typeof structured?.confidence === "string" && structured.confidence.trim());
-                const shouldRenderStructured =
-                  isAssistant && (hasAutopsy || hasPerspectives || hasExplanation || hasEthicalCheck || hasTrustBlock);
-
-                return (
-                  <article
-                    key={message.id}
-                    className={`chat-message chat-message-${message.role}${
-                      message.isError ? " chat-message-error" : ""
-                    }`}
-                  >
-                    <span className="chat-message-role">
-                      {message.role === "user" ? "You" : "Intellexa"}
-                    </span>
-
-                    {shouldRenderStructured ? (
-                      <div className="chat-structured">
-                        {hasAutopsy ? (
-                          <section className="chat-structured-panel chat-autopsy-panel">
-                            <h3 className="chat-panel-title chat-autopsy-title">Perspective Autopsy</h3>
-                            <p className="chat-autopsy-kicker">Before answer generation</p>
-
-                            <div className="chat-autopsy-group">
-                              <p className="chat-autopsy-label">Assumptions</p>
-                              {structured.autopsy.assumptions.length ? (
-                                <ul className="chat-panel-list">
-                                  {structured.autopsy.assumptions.map((item, index) => (
-                                    <li key={`${message.id}-autopsy-assumption-${index}`}>{item}</li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="chat-autopsy-empty">No assumptions detected.</p>
-                              )}
-                            </div>
-
-                            <div className="chat-autopsy-group">
-                              <p className="chat-autopsy-label">Bias Detected</p>
-                              <p className="chat-autopsy-bias">{structured.autopsy.biasDetected || "none"}</p>
-                            </div>
-
-                            <div className="chat-autopsy-group">
-                              <p className="chat-autopsy-label">Missing Angles</p>
-                              {structured.autopsy.missingAngles.length ? (
-                                <ul className="chat-panel-list">
-                                  {structured.autopsy.missingAngles.map((item, index) => (
-                                    <li key={`${message.id}-autopsy-angle-${index}`}>{item}</li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="chat-autopsy-empty">No missing angles identified.</p>
-                              )}
-                            </div>
-                          </section>
-                        ) : null}
-
-                        <section className="chat-structured-panel">
-                          <h3 className="chat-panel-title">Answer</h3>
-                          <p className="chat-response-text">
-                            {renderChatMarkdown(responseText)}
-                            {isTypingMessage ? (
-                              <span className="chat-typing-cursor" aria-hidden="true">
-                                |
-                              </span>
-                            ) : null}
-                          </p>
-                        </section>
-
-                        {hasPerspectives ? <PerspectiveTabs perspectives={structured.perspectives} /> : null}
-
-                        {hasExplanation ? <ExplanationPanel items={structured.explanationItems} /> : null}
-
-                        {hasEthicalCheck ? (
-                          <section className="chat-structured-panel">
-                            <h3 className="chat-panel-title">Ethical Check</h3>
-                            <div className="chat-meta-grid">
-                              {Object.entries(structured.ethicalCheck).map(([key, value]) => (
-                                <div key={`${message.id}-${key}`} className="chat-meta-item">
-                                  <span className="chat-meta-label">{formatLabel(key)}</span>
-                                  <span className="chat-meta-value">{formatValue(value)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </section>
-                        ) : null}
-
-                        {hasTrustBlock ? (
-                          <section className="chat-structured-panel">
-                            <h3 className="chat-panel-title">Trust</h3>
-                            <div className="chat-meta-grid">
-                              {structured.trustScore !== null && structured.trustScore !== undefined ? (
-                                <div className="chat-meta-item">
-                                  <span className="chat-meta-label">Trust Score</span>
-                                  <span className="chat-meta-value">{formatValue(structured.trustScore)}</span>
-                                </div>
-                              ) : null}
-
-                              {typeof structured.confidence === "string" && structured.confidence.trim() ? (
-                                <div className="chat-meta-item">
-                                  <span className="chat-meta-label">Confidence</span>
-                                  <span className="chat-meta-value">{structured.confidence.trim()}</span>
-                                </div>
-                              ) : null}
-                            </div>
-                          </section>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <p className="chat-response-text">
-                        {renderChatMarkdown(responseText)}
-                        {isTypingMessage ? (
-                          <span className="chat-typing-cursor" aria-hidden="true">
-                            |
-                          </span>
-                        ) : null}
-                      </p>
-                    )}
-                  </article>
-                );
-              })}
-
-              {isLoading ? (
-                <article
-                  className="chat-message chat-message-assistant chat-message-loading"
-                  aria-label="Intellexa is thinking"
-                  role="status"
+            <div className="dashboard-chat-content">
+              <div className="dashboard-chat-thread">
+                <div
+                  className="chat-history"
+                  ref={historyRef}
+                  onScroll={handleHistoryScroll}
+                  aria-live="polite"
+                  aria-busy={isLoading}
                 >
-                  <span className="chat-message-role">Intellexa</span>
-                  <p className="chat-thinking-label">
-                    {THINKING_STATUS_MESSAGES[thinkingStepIndex]}
-                  </p>
-                  <div className="chat-typing-dots" aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <div className="chat-thinking-progress" aria-hidden="true">
-                    <span />
-                  </div>
-                </article>
-              ) : null}
-            </div>
+                  {messages.map((message, index) => {
+                    const isAssistant = message.role === "assistant";
+                    const isTypingMessage = isAssistant && typingState.messageId === message.id;
+                    const displayedContent = isTypingMessage ? typingState.visibleText : message.content;
+                    const responseText = displayedContent || (isTypingMessage ? "" : message.content);
+                    const previousMessage = index > 0 ? messages[index - 1] : null;
+                    const insightPrompt =
+                      previousMessage?.role === "user" ? previousMessage.content : "";
+                    const hasInsights = isAssistant && hasStructuredInsights(message.structured);
+                    const canRequestInsights =
+                      isAssistant &&
+                      !message.isError &&
+                      !isTypingMessage &&
+                      Boolean(String(insightPrompt || "").trim());
+                    const shouldShowInsightAction = hasInsights || canRequestInsights;
+                    const isInsightActive = hasInsights && activeInsightMessageId === message.id;
+                    const isInsightLoading = insightLoadingMessageId === message.id;
 
-            <form className="chat-input-form" onSubmit={handleSubmit}>
-              <label className="chat-input-label" htmlFor="dashboard-chat-input">
-                Ask Intellexa
-              </label>
-              <textarea
-                id="dashboard-chat-input"
-                className="chat-input"
-                value={inputValue}
-                onChange={(event) => {
-                  if (errorMessage) {
-                    setErrorMessage("");
-                  }
+                    return (
+                      <article
+                        key={message.id}
+                        className={`chat-message chat-message-${message.role}${
+                          message.isError ? " chat-message-error" : ""
+                        }`}
+                      >
+                        <span className="chat-message-role">
+                          {message.role === "user" ? "You" : "Intellexa"}
+                        </span>
 
-                  setInputValue(event.target.value);
-                }}
-                onKeyDown={handleInputKeyDown}
-                rows={2}
-                placeholder="Type your question here..."
-                disabled={isLoading}
-              />
-              <div className="chat-input-actions">
-                <p className="chat-input-hint">Press Enter to send, Shift + Enter for a new line.</p>
-                <button className="chat-send-button" type="submit" disabled={isLoading || !inputValue.trim()}>
-                  {isLoading ? "Thinking..." : "Send"}
-                </button>
+                        <p className="chat-response-text">
+                          {renderChatMarkdown(responseText)}
+                          {isTypingMessage ? (
+                            <span className="chat-typing-cursor" aria-hidden="true">
+                              |
+                            </span>
+                          ) : null}
+                        </p>
+
+                        {shouldShowInsightAction ? (
+                          <div className="chat-message-actions">
+                            <button
+                              type="button"
+                              className={`chat-insight-trigger ${isInsightActive ? "is-active" : ""}`}
+                              onClick={() =>
+                                void handleViewInsightsForMessage(
+                                  message.id,
+                                  insightPrompt,
+                                  hasInsights
+                                )
+                              }
+                              disabled={isInsightLoading || isLoading}
+                            >
+                              {isInsightLoading
+                                ? "Generating..."
+                                : isInsightActive
+                                  ? "Hide Analysis"
+                                  : "View Analysis"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+
+                  {isLoading ? (
+                    <article
+                      className="chat-message chat-message-assistant chat-message-loading"
+                      aria-label="Intellexa is thinking"
+                      role="status"
+                    >
+                      <span className="chat-message-role">Intellexa</span>
+                      <p className="chat-thinking-label">
+                        {THINKING_STATUS_MESSAGES[thinkingStepIndex]}
+                      </p>
+                      <div className="chat-typing-dots" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                      <div className="chat-thinking-progress" aria-hidden="true">
+                        <span />
+                      </div>
+                    </article>
+                  ) : null}
+                </div>
+
+                <form className="chat-input-form" onSubmit={handleSubmit}>
+                  <label className="chat-input-label" htmlFor="dashboard-chat-input">
+                    Ask Intellexa
+                  </label>
+                  <textarea
+                    id="dashboard-chat-input"
+                    className="chat-input"
+                    value={inputValue}
+                    onChange={(event) => {
+                      if (errorMessage) {
+                        setErrorMessage("");
+                      }
+
+                      setInputValue(event.target.value);
+                    }}
+                    onKeyDown={handleInputKeyDown}
+                    rows={2}
+                    placeholder="Type your question here..."
+                    disabled={isLoading}
+                  />
+                  <div className="chat-input-actions">
+                    <p className="chat-input-hint">Press Enter to send, Shift + Enter for a new line.</p>
+                    <button className="chat-send-button" type="submit" disabled={isLoading || !inputValue.trim()}>
+                      {isLoading ? "Thinking..." : "Send"}
+                    </button>
+                  </div>
+                </form>
               </div>
-            </form>
+
+              <ChatInsightsPanel
+                message={activeInsightMessage}
+                onClose={() => setActiveInsightMessageId(null)}
+              />
+            </div>
           </div>
         </div>
       </div>

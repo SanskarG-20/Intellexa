@@ -37,6 +37,7 @@ function ChatHistorySidebar({
   onSelectChat,
   onNewChat,
   isNewChatDisabled,
+  isInteractionDisabled,
 }) {
   return (
     <aside className="chat-sidebar" aria-label="Chat history sidebar">
@@ -50,7 +51,7 @@ function ChatHistorySidebar({
             type="button"
             className="chat-sidebar-new-button"
             onClick={onNewChat}
-            disabled={isNewChatDisabled}
+            disabled={isNewChatDisabled || isInteractionDisabled}
           >
             + New Chat
           </button>
@@ -77,6 +78,7 @@ function ChatHistorySidebar({
                   role="listitem"
                   className={`chat-sidebar-item ${isActive ? "is-active" : ""}`}
                   onClick={() => onSelectChat(chat.id)}
+                  disabled={isInteractionDisabled}
                 >
                   <span className="chat-sidebar-preview">{toPreviewText(chat.message)}</span>
                   <span className="chat-sidebar-time">{toTimestampLabel(chat.created_at)}</span>
