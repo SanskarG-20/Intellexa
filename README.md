@@ -76,7 +76,7 @@ Data Layer:
 8. Final response is returned with trust score, confidence, and risk signals.
 
 Demo links:
-- Live URL: [add deployment link](https://intellexa-lac.vercel.app/)
+- Live URL: [Intellexa](https://intellexa-lac.vercel.app/)
 
 ## Installation Guide
 Prerequisites:
