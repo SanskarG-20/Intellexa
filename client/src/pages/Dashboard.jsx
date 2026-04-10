@@ -2,11 +2,107 @@ import { SignOutButton, useUser } from "@clerk/clerk-react";
 import { useEffect, useRef, useState } from "react";
 import { useApiService } from "../services/apiService";
 
-function createChatMessage(role, content) {
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function formatLabel(key) {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return "N/A";
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(", ");
+  }
+
+  if (isPlainObject(value)) {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}
+
+function extractMainAnswer(data) {
+  if (typeof data?.response === "string" && data.response.trim()) {
+    return data.response.trim();
+  }
+
+  if (typeof data?.answer === "string" && data.answer.trim()) {
+    return data.answer.trim();
+  }
+
+  if (!isPlainObject(data?.answer)) {
+    return "";
+  }
+
+  const answerObject = data.answer;
+  const priorityKeys = ["main", "content", "summary", "utilitarian", "rights_based", "care_ethics"];
+
+  for (const key of priorityKeys) {
+    if (typeof answerObject[key] === "string" && answerObject[key].trim()) {
+      return answerObject[key].trim();
+    }
+  }
+
+  const firstTextEntry = Object.values(answerObject).find(
+    (value) => typeof value === "string" && value.trim()
+  );
+
+  return firstTextEntry ? firstTextEntry.trim() : "";
+}
+
+function extractExplanationItems(data) {
+  if (Array.isArray(data?.explanation)) {
+    return data.explanation
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+  }
+
+  if (typeof data?.explanation === "string" && data.explanation.trim()) {
+    return data.explanation
+      .split(/\n+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function buildStructuredPayload(data) {
+  const explanationItems = extractExplanationItems(data);
+  const ethicalCheck = isPlainObject(data?.ethical_check)
+    ? data.ethical_check
+    : isPlainObject(data?.audit_results)
+      ? data.audit_results
+      : null;
+  const trustScore = data?.trust_score ?? null;
+  const confidence = data?.confidence ?? null;
+
+  return {
+    answer: extractMainAnswer(data),
+    explanationItems,
+    ethicalCheck,
+    trustScore,
+    confidence,
+  };
+}
+
+function createChatMessage(role, content, structured = null) {
   return {
     id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     role,
     content,
+    structured,
   };
 }
 
@@ -51,9 +147,13 @@ function Dashboard() {
 
     try {
       const data = await sendMessage(nextMessage);
-      const aiText = data?.response?.trim() || "I could not generate a response just now.";
+      const structuredPayload = buildStructuredPayload(data);
+      const aiText = structuredPayload.answer || "I could not generate a response just now.";
 
-      setMessages((prev) => [...prev, createChatMessage("assistant", aiText)]);
+      setMessages((prev) => [
+        ...prev,
+        createChatMessage("assistant", aiText, structuredPayload),
+      ]);
     } catch (error) {
       const fallback = "Unable to reach Intellexa right now. Please try again.";
       const message = error instanceof Error ? error.message : fallback;
@@ -103,17 +203,86 @@ function Dashboard() {
         ) : null}
 
         <div className="chat-history" ref={historyRef} aria-live="polite" aria-busy={isLoading}>
-          {messages.map((message) => (
-            <article
-              key={message.id}
-              className={`chat-message chat-message-${message.role}`}
-            >
-              <span className="chat-message-role">
-                {message.role === "user" ? "You" : "Intellexa"}
-              </span>
-              <p>{message.content}</p>
-            </article>
-          ))}
+          {messages.map((message) => {
+            const isAssistant = message.role === "assistant";
+            const structured = message.structured;
+            const hasExplanation = Boolean(structured?.explanationItems?.length);
+            const hasEthicalCheck = Boolean(
+              structured?.ethicalCheck && Object.keys(structured.ethicalCheck).length
+            );
+            const hasTrustBlock =
+              (structured?.trustScore !== null && structured?.trustScore !== undefined) ||
+              (typeof structured?.confidence === "string" && structured.confidence.trim());
+            const shouldRenderStructured = isAssistant && (hasExplanation || hasEthicalCheck || hasTrustBlock);
+
+            return (
+              <article
+                key={message.id}
+                className={`chat-message chat-message-${message.role}`}
+              >
+                <span className="chat-message-role">
+                  {message.role === "user" ? "You" : "Intellexa"}
+                </span>
+
+                {shouldRenderStructured ? (
+                  <div className="chat-structured">
+                    <section className="chat-structured-panel">
+                      <h3 className="chat-panel-title">Answer</h3>
+                      <p>{structured.answer || message.content}</p>
+                    </section>
+
+                    {hasExplanation ? (
+                      <section className="chat-structured-panel">
+                        <h3 className="chat-panel-title">Explanation</h3>
+                        <ul className="chat-panel-list">
+                          {structured.explanationItems.map((item, index) => (
+                            <li key={`${message.id}-${index}`}>{item}</li>
+                          ))}
+                        </ul>
+                      </section>
+                    ) : null}
+
+                    {hasEthicalCheck ? (
+                      <section className="chat-structured-panel">
+                        <h3 className="chat-panel-title">Ethical Check</h3>
+                        <div className="chat-meta-grid">
+                          {Object.entries(structured.ethicalCheck).map(([key, value]) => (
+                            <div key={`${message.id}-${key}`} className="chat-meta-item">
+                              <span className="chat-meta-label">{formatLabel(key)}</span>
+                              <span className="chat-meta-value">{formatValue(value)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ) : null}
+
+                    {hasTrustBlock ? (
+                      <section className="chat-structured-panel">
+                        <h3 className="chat-panel-title">Trust</h3>
+                        <div className="chat-meta-grid">
+                          {structured.trustScore !== null && structured.trustScore !== undefined ? (
+                            <div className="chat-meta-item">
+                              <span className="chat-meta-label">Trust Score</span>
+                              <span className="chat-meta-value">{formatValue(structured.trustScore)}</span>
+                            </div>
+                          ) : null}
+
+                          {typeof structured.confidence === "string" && structured.confidence.trim() ? (
+                            <div className="chat-meta-item">
+                              <span className="chat-meta-label">Confidence</span>
+                              <span className="chat-meta-value">{structured.confidence.trim()}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </section>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p>{message.content}</p>
+                )}
+              </article>
+            );
+          })}
 
           {isLoading ? (
             <article className="chat-message chat-message-assistant chat-message-loading" aria-label="Intellexa is typing">

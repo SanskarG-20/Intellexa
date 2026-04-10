@@ -47,6 +47,11 @@ export async function sendMessage(message, getToken) {
 
     return {
       response: data?.response ?? "",
+      answer: data?.answer ?? null,
+      explanation: data?.explanation ?? null,
+      ethical_check: data?.ethical_check ?? null,
+      trust_score: data?.trust_score ?? null,
+      confidence: data?.confidence ?? null,
       ethical_perspectives: data?.ethical_perspectives ?? null,
       audit_results: data?.audit_results ?? null,
       perspective_autopsy: data?.perspective_autopsy ?? null,
