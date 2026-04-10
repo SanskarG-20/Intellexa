@@ -28,12 +28,6 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function formatLabel(key) {
-  return key
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
 function formatValue(value) {
   if (value === null || value === undefined || value === "") {
     return "N/A";
@@ -242,14 +236,11 @@ function hasStructuredInsights(structured) {
   const hasExplanation = Boolean(
     Array.isArray(structured.explanationItems) && structured.explanationItems.length
   );
-  const hasEthicalCheck = Boolean(
-    isPlainObject(structured.ethicalCheck) && Object.keys(structured.ethicalCheck).length
-  );
   const hasTrustBlock =
     (structured.trustScore !== null && structured.trustScore !== undefined) ||
     (typeof structured.confidence === "string" && structured.confidence.trim());
 
-  return hasAutopsy || hasPerspectives || hasExplanation || hasEthicalCheck || hasTrustBlock;
+  return hasAutopsy || hasPerspectives || hasExplanation || hasTrustBlock;
 }
 
 function PerspectiveTabs({ perspectives }) {
@@ -361,9 +352,6 @@ function ChatInsightsPanel({ message, onClose }) {
       )
   );
   const hasExplanation = Boolean(structured.explanationItems?.length);
-  const hasEthicalCheck = Boolean(
-    structured.ethicalCheck && Object.keys(structured.ethicalCheck).length
-  );
   const hasTrustBlock =
     (structured.trustScore !== null && structured.trustScore !== undefined) ||
     (typeof structured.confidence === "string" && structured.confidence.trim());
@@ -422,20 +410,6 @@ function ChatInsightsPanel({ message, onClose }) {
         {hasPerspectives ? <PerspectiveTabs perspectives={structured.perspectives} /> : null}
 
         {hasExplanation ? <ExplanationPanel items={structured.explanationItems} /> : null}
-
-        {hasEthicalCheck ? (
-          <section className="chat-structured-panel">
-            <h3 className="chat-panel-title">Ethical Check</h3>
-            <div className="chat-meta-grid">
-              {Object.entries(structured.ethicalCheck).map(([key, value]) => (
-                <div key={`insight-${key}`} className="chat-meta-item">
-                  <span className="chat-meta-label">{formatLabel(key)}</span>
-                  <span className="chat-meta-value">{formatValue(value)}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
 
         {hasTrustBlock ? (
           <section className="chat-structured-panel">
