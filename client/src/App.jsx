@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import Lenis from "@studio-freight/lenis";
@@ -10,6 +10,7 @@ const Spline = lazy(() => import("@splinetool/react-spline"));
 const SPLINE_SCENE_URL = "https://prod.spline.design/EciRVKyhBcQYj-h8/scene.splinecode";
 
 gsap.registerPlugin(ScrollTrigger);
+gsap.config({ autoSleep: 60, nullTargetWarn: false });
 
 function getRuntimeMode() {
   if (typeof window === "undefined") {
@@ -126,6 +127,15 @@ function App() {
   const reducedMotion = runtimeMode.reducedMotion;
 
   useEffect(() => {
+    // Guard against stale inline styles from interrupted route transitions.
+    document.body.style.opacity = "1";
+
+    return () => {
+      document.body.style.opacity = "1";
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return undefined;
 
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -156,7 +166,7 @@ function App() {
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
     handleScroll();
-    window.addEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -170,10 +180,10 @@ function App() {
     document.documentElement.style.scrollBehavior = "auto";
 
     const lenis = new Lenis({
-      duration: 0.95,
-      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      duration: 1.05,
+      easing: (t) => 1 - Math.pow(1 - t, 3),
       smooth: true,
-      wheelMultiplier: 1.15,
+      wheelMultiplier: 1,
       touchMultiplier: 1.0,
     });
 
@@ -260,7 +270,7 @@ function App() {
   }, [isLiteMode]);
 
   /* GSAP motion system */
-  useEffect(() => {
+  useLayoutEffect(() => {
     gsap.set("body", { opacity: 1 });
 
     if (isLiteMode || reducedMotion) {
@@ -270,59 +280,64 @@ function App() {
     const ctx = gsap.context(() => {
       gsap.fromTo(
         ".navbar",
-        { yPercent: -100, opacity: 0 },
+        { yPercent: -28 },
         {
           yPercent: 0,
-          opacity: 1,
-          duration: 0.8,
-          delay: 0.2,
+          duration: 0.72,
+          delay: 0.15,
           ease: "power4.out",
+          force3D: true,
+          overwrite: "auto",
         }
       );
 
       const tl = gsap.timeline({ delay: 0.3 });
 
       tl.from(".hero-badge", {
-        opacity: 0,
-        y: -16,
-        duration: 0.6,
+        y: -10,
+        duration: 0.52,
         ease: "power3.out",
+        force3D: true,
+        overwrite: "auto",
       })
         .from(
           ".hero-word",
           {
-            opacity: 0,
-            y: 48,
-            duration: 0.7,
+            y: 20,
+            duration: 0.56,
             ease: "power4.out",
-            stagger: 0.065,
+            stagger: 0.05,
+            force3D: true,
+            overwrite: "auto",
           },
           "-=0.3"
         )
         .from(
           ".hero-subtext",
           {
-            opacity: 0,
-            y: 24,
-            duration: 0.6,
+            y: 12,
+            duration: 0.5,
             ease: "power3.out",
+            force3D: true,
+            overwrite: "auto",
           },
           "-=0.4"
         )
         .from(
           ".hero-buttons",
           {
-            opacity: 0,
-            y: 20,
-            duration: 0.5,
+            y: 10,
+            duration: 0.46,
             ease: "power3.out",
+            force3D: true,
+            overwrite: "auto",
           },
           "-=0.35"
         )
         .from(
           ".hero-trust",
           {
-            opacity: 0,
+            y: 8,
             duration: 0.4,
             ease: "power2.out",
           },
@@ -331,10 +346,10 @@ function App() {
         .from(
           ".hero-chips",
           {
-            opacity: 0,
-            scale: 0.9,
-            duration: 0.5,
-            ease: "back.out(1.7)",
+            y: 10,
+            scale: 0.97,
+            duration: 0.48,
+            ease: "power2.out",
             stagger: 0.1,
           },
           "-=0.6"
@@ -345,46 +360,77 @@ function App() {
           return;
         }
 
-        gsap.from(el, {
+        gsap.fromTo(
+          el,
+          {
+            opacity: 0,
+            y: 40,
+          },
+          {
           scrollTrigger: {
             trigger: el,
             start: "top 88%",
             toggleActions: "play none none none",
           },
-          opacity: 0,
-          y: 40,
+          opacity: 1,
+          y: 0,
           duration: 0.75,
           ease: "power3.out",
           delay: i * 0.04,
-        });
+          immediateRender: false,
+          force3D: true,
+          overwrite: "auto",
+        }
+        );
       });
 
-      gsap.from(".pipeline-cell", {
+      gsap.fromTo(
+        ".pipeline-cell",
+        {
+          opacity: 0,
+          y: 32,
+        },
+        {
         scrollTrigger: {
           trigger: ".pipeline-grid",
           start: "top 80%",
           toggleActions: "play none none none",
         },
-        opacity: 0,
-        y: 32,
+        opacity: 1,
+        y: 0,
         duration: 0.6,
         ease: "power3.out",
         stagger: 0.07,
-      });
+        immediateRender: false,
+        force3D: true,
+        overwrite: "auto",
+      }
+      );
 
-      gsap.from(".feature-card", {
+      gsap.fromTo(
+        ".feature-card",
+        {
+          opacity: 0,
+          y: 36,
+          scale: 0.97,
+        },
+        {
         scrollTrigger: {
           trigger: ".features-grid",
           start: "top 80%",
           toggleActions: "play none none none",
         },
-        opacity: 0,
-        y: 36,
-        scale: 0.97,
+        opacity: 1,
+        y: 0,
+        scale: 1,
         duration: 0.65,
         ease: "power3.out",
         stagger: 0.08,
-      });
+        immediateRender: false,
+        force3D: true,
+        overwrite: "auto",
+      }
+      );
 
       gsap.utils.toArray(".metric-number").forEach((el) => {
         const target = parseFloat(el.dataset.target || "0");
@@ -434,23 +480,9 @@ function App() {
   const handleCTAClick = useCallback(() => {
     const targetRoute = isSignedIn ? "/dashboard" : "/sign-in";
 
-    if (isLiteMode || reducedMotion) {
-      setIsMobileMenuOpen(false);
-      navigate(targetRoute);
-      return;
-    }
-
-    gsap.to("body", {
-      opacity: 0,
-      duration: 0.4,
-      ease: "power2.in",
-      onComplete: () => {
-        setIsMobileMenuOpen(false);
-        navigate(targetRoute);
-        gsap.set("body", { opacity: 1 });
-      },
-    });
-  }, [isSignedIn, navigate, isLiteMode, reducedMotion]);
+    setIsMobileMenuOpen(false);
+    navigate(targetRoute);
+  }, [isSignedIn, navigate]);
 
   const handleScrollToPipeline = useCallback(() => {
     setIsMobileMenuOpen(false);

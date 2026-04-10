@@ -36,32 +36,44 @@ function normalizeBackendResponse(data) {
 
 async function getAuthorizationHeader(getToken, { forceRefresh = false } = {}) {
   if (typeof getToken !== "function") {
-    throw new Error("sendMessage requires Clerk getToken from useAuth().");
+    return null;
   }
 
-  const token = await getToken({
-    ...(CLERK_TOKEN_TEMPLATE ? { template: CLERK_TOKEN_TEMPLATE } : {}),
-    skipCache: forceRefresh,
-  });
+  let token = null;
+
+  if (CLERK_TOKEN_TEMPLATE) {
+    token = await getToken({
+      template: CLERK_TOKEN_TEMPLATE,
+      skipCache: forceRefresh,
+    });
+  }
 
   if (!token) {
-    throw new Error("Missing Clerk auth token. Please sign in and try again.");
+    token = await getToken({ skipCache: forceRefresh });
+  }
+
+  if (!token) {
+    return null;
   }
 
   return `Bearer ${token}`;
 }
 
 async function postChatMessage(message, authorization) {
+  const requestConfig = authorization
+    ? {
+        headers: {
+          Authorization: authorization,
+        },
+      }
+    : undefined;
+
   const { data } = await apiClient.post(
     "/v1/chat",
     {
       message: message.trim(),
     },
-    {
-      headers: {
-        Authorization: authorization,
-      },
-    }
+    requestConfig
   );
 
   return data;
@@ -72,7 +84,7 @@ export async function sendMessage(message, getToken) {
     throw new Error("sendMessage(message) requires a non-empty message string.");
   }
 
-  const authorization = await getAuthorizationHeader(getToken);
+  let authorization = await getAuthorizationHeader(getToken);
 
   try {
     const data = await postChatMessage(message, authorization);
@@ -82,10 +94,22 @@ export async function sendMessage(message, getToken) {
       const statusCode = error.response?.status;
 
       if (statusCode === 401) {
+        if (!authorization) {
+          throw new Error(
+            "401 Unauthorized: backend requires a valid auth token. Sign in again or configure the Clerk token template."
+          );
+        }
+
         try {
           const refreshedAuthorization = await getAuthorizationHeader(getToken, {
             forceRefresh: true,
           });
+
+          if (!refreshedAuthorization) {
+            throw new Error("Unable to refresh auth token.");
+          }
+
+          authorization = refreshedAuthorization;
           const retryData = await postChatMessage(message, refreshedAuthorization);
           return normalizeBackendResponse(retryData);
         } catch {
@@ -118,7 +142,7 @@ export async function sendMessage(message, getToken) {
 }
 
 export function useApiService() {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { getToken, isLoaded } = useAuth();
 
   const sendAuthenticatedMessage = useCallback(
     async (message) => {
@@ -126,13 +150,9 @@ export function useApiService() {
         throw new Error("Authentication is still loading. Please try again.");
       }
 
-      if (!isSignedIn) {
-        throw new Error("You are not signed in. Please sign in to continue.");
-      }
-
       return sendMessage(message, getToken);
     },
-    [getToken, isLoaded, isSignedIn]
+    [getToken, isLoaded]
   );
 
   return {

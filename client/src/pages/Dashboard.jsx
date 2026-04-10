@@ -157,13 +157,14 @@ function Dashboard() {
     } catch (error) {
       const fallback = "Unable to reach Intellexa right now. Please try again.";
       const message = error instanceof Error ? error.message : fallback;
+      const userVisibleMessage = message || fallback;
 
-      setErrorMessage(message || fallback);
+      setErrorMessage(userVisibleMessage);
       setMessages((prev) => [
         ...prev,
         createChatMessage(
           "assistant",
-          "I hit an issue while processing that request. Please retry in a moment."
+          `I hit an issue while processing that request: ${userVisibleMessage}`
         ),
       ]);
     } finally {

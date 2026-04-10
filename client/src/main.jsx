@@ -12,16 +12,14 @@ if (!clerkPublishableKey) {
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <ClerkProvider
-      publishableKey={clerkPublishableKey}
-      afterSignOutUrl="/"
-      signInForceRedirectUrl="/dashboard"
-      signUpForceRedirectUrl="/dashboard"
-    >
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
-    </ClerkProvider>
-  </React.StrictMode>
+  <ClerkProvider
+    publishableKey={clerkPublishableKey}
+    afterSignOutUrl="/"
+    signInForceRedirectUrl="/dashboard"
+    signUpForceRedirectUrl="/dashboard"
+  >
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
+  </ClerkProvider>
 );

@@ -1,7 +1,7 @@
-import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useEffect } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import App from "./App";
 
-const App = lazy(() => import("./App"));
 const ProtectedRoute = lazy(() => import("./components/ProtectedRoute"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const SignInPage = lazy(() => import("./pages/SignInPage"));
@@ -12,16 +12,16 @@ function RouteFallback() {
 }
 
 function AppRoutes() {
+  const location = useLocation();
+
+  useEffect(() => {
+    // Safety guard: prevent stale GSAP inline styles from leaving the app fully transparent.
+    document.body.style.opacity = "1";
+  }, [location.pathname]);
+
   return (
     <Routes>
-      <Route
-        path="/"
-        element={
-          <Suspense fallback={<RouteFallback />}>
-            <App />
-          </Suspense>
-        }
-      />
+      <Route path="/" element={<App />} />
       <Route
         path="/sign-in/*"
         element={

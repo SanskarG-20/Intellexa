@@ -33,7 +33,7 @@
 }
 
 html {
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -369,43 +369,45 @@ button {
 .hud-chip:nth-child(1) {
   top: 15%;
   left: 48%;
-  animation: hudFloatUp 3s ease-in-out infinite alternate;
+  animation: hudFloatUp 5.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .hud-chip:nth-child(2) {
   top: 20%;
   right: 2%;
-  animation: hudFloatDown 3.5s ease-in-out 1s infinite alternate;
+  animation: hudFloatDown 6.2s cubic-bezier(0.4, 0, 0.2, 1) 0.8s infinite;
 }
 
 .hud-chip:nth-child(3) {
   bottom: 30%;
   right: 3%;
-  animation: hudFloatUp 3s ease-in-out infinite alternate;
+  animation: hudFloatUp 5.8s cubic-bezier(0.4, 0, 0.2, 1) 0.35s infinite;
 }
 
 .hud-chip:nth-child(4) {
   bottom: 25%;
   left: 48%;
-  animation: hudFloatDown 3.5s ease-in-out 1s infinite alternate;
+  animation: hudFloatDown 6.4s cubic-bezier(0.4, 0, 0.2, 1) 0.6s infinite;
 }
 
 @keyframes hudFloatUp {
-  from {
+  0%,
+  100% {
     transform: translateY(0);
   }
 
-  to {
+  50% {
     transform: translateY(-8px);
   }
 }
 
 @keyframes hudFloatDown {
-  from {
+  0%,
+  100% {
     transform: translateY(0);
   }
 
-  to {
+  50% {
     transform: translateY(8px);
   }
 }
@@ -555,7 +557,7 @@ button {
   font-size: 10px;
   letter-spacing: 0.2em;
   color: var(--text-dim);
-  animation: scrollBounce 1.5s ease-in-out infinite alternate;
+  animation: scrollBounce 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 @keyframes scrollBounce {
@@ -820,8 +822,6 @@ button {
   padding: 120px 28px;
   max-width: 1200px;
   margin: 0 auto;
-  content-visibility: auto;
-  contain-intrinsic-size: 1100px;
 }
 
 .features-label {
@@ -1107,8 +1107,6 @@ button {
   border-top: 1px solid var(--border);
   max-width: 1200px;
   margin: 0 auto;
-  content-visibility: auto;
-  contain-intrinsic-size: 520px;
 }
 
 .metrics-label {
@@ -1184,8 +1182,18 @@ button {
   max-width: 800px;
   margin: 0 auto;
   position: relative;
-  content-visibility: auto;
-  contain-intrinsic-size: 720px;
+}
+
+.navbar,
+.hero-word,
+.pipeline-step,
+.feature-card,
+.metric-cell,
+.terminal-frame,
+.chat-message,
+.hud-chip {
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .terminal-frame {
@@ -1992,8 +2000,8 @@ button {
 
 /* Initial hidden state for GSAP reveal-up elements */
 .reveal-up {
-  opacity: 0;
-  transform: translateY(40px);
+  opacity: 1;
+  transform: none;
 }
 
 .lite-mode .reveal-up {
