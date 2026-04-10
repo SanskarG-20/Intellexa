@@ -21,9 +21,32 @@ function normalizeBackendResponse(data) {
       ? rootPayload.data
       : rootPayload;
 
+  const finalAnswer = payload.final_answer ?? payload.finalResponse ?? payload.output ?? null;
+  const sources =
+    payload.sources ??
+    payload.citations ??
+    payload.references ??
+    payload.web_sources ??
+    payload.search_results ??
+    null;
+  const toolCalls = payload.tool_calls ?? payload.tools ?? payload.tool_invocations ?? null;
+  const searchUsed =
+    payload.search_used ??
+    payload.web_search_used ??
+    payload.search_performed ??
+    payload.tool_search_used ??
+    null;
+
   return {
     response: payload.response ?? "",
+    final_answer: finalAnswer,
     answer: payload.answer ?? null,
+    sources,
+    citations: payload.citations ?? null,
+    references: payload.references ?? null,
+    search_used: searchUsed,
+    tool_calls: toolCalls,
+    tool_events: payload.tool_events ?? null,
     explanation: payload.explanation ?? null,
     ethical_check: payload.ethical_check ?? null,
     trust_score: payload.trust_score ?? null,

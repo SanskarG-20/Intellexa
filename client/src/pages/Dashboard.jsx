@@ -16,10 +16,15 @@ const PERSPECTIVE_TABS = [
 ];
 
 const THINKING_STATUS_MESSAGES = [
-  "Analyzing your prompt...",
-  "Running ethical checks...",
-  "Cross-verifying reasoning...",
-  "Finalizing response...",
+  "Thinking...",
+  "Reasoning through your request...",
+  "Preparing final answer...",
+];
+
+const SEARCH_AWARE_STATUS_MESSAGES = [
+  "Thinking...",
+  "Searching web...",
+  "Synthesizing search results...",
 ];
 
 const AUTO_SCROLL_THRESHOLD_PX = 88;
@@ -71,31 +76,204 @@ function toFriendlyChatErrorMessage(rawMessage) {
   return message;
 }
 
-function renderChatMarkdown(text) {
+function isLikelySearchIntent(query) {
+  const value = String(query || "").toLowerCase();
+  if (!value) {
+    return false;
+  }
+
+  return /(latest|today|current|news|breaking|live|update|202[4-9]|real[-\s]?time|stock|price|weather|election|trend)/.test(
+    value
+  );
+}
+
+function toSafeHttpUrl(rawUrl) {
+  const value = String(rawUrl || "").trim();
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return /^https?:$/i.test(parsed.protocol) ? parsed.toString() : null;
+  } catch {
+    try {
+      const parsed = new URL(`https://${value}`);
+      return /^https?:$/i.test(parsed.protocol) ? parsed.toString() : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function getSourceTitleFromUrl(url) {
+  if (!url) {
+    return "";
+  }
+
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "");
+  } catch {
+    return "";
+  }
+}
+
+function toSourceEntry(source, index) {
+  const defaultLabel = `[Source ${index + 1}]`;
+
+  if (typeof source === "string") {
+    const safeUrl = toSafeHttpUrl(source);
+    if (!safeUrl) {
+      return null;
+    }
+
+    return {
+      label: defaultLabel,
+      url: safeUrl,
+      title: getSourceTitleFromUrl(safeUrl),
+    };
+  }
+
+  if (!isPlainObject(source)) {
+    return null;
+  }
+
+  const rawUrl = source.url ?? source.link ?? source.href ?? source.source ?? source.website;
+  const safeUrl = toSafeHttpUrl(rawUrl);
+  if (!safeUrl) {
+    return null;
+  }
+
+  const rawLabel = source.label ?? source.citation ?? source.id;
+  const labelValue = String(rawLabel || "").trim();
+
+  const rawTitle = source.title ?? source.name ?? source.domain ?? labelValue;
+  const title = String(rawTitle || "").trim() || getSourceTitleFromUrl(safeUrl);
+
+  return {
+    label: defaultLabel,
+    url: safeUrl,
+    title,
+  };
+}
+
+function extractSources(data) {
+  const sourceCandidates = [
+    data?.sources,
+    data?.citations,
+    data?.references,
+    data?.web_sources,
+    data?.search_results,
+  ];
+
+  let rawSources = null;
+
+  for (const candidate of sourceCandidates) {
+    if (Array.isArray(candidate) && candidate.length) {
+      rawSources = candidate;
+      break;
+    }
+  }
+
+  if (!rawSources && isPlainObject(data?.sources)) {
+    rawSources = Object.entries(data.sources).map(([label, url]) => ({ label, url }));
+  }
+
+  if (!Array.isArray(rawSources) || !rawSources.length) {
+    return [];
+  }
+
+  const uniqueUrls = new Set();
+
+  return rawSources
+    .map((source, index) => toSourceEntry(source, index))
+    .filter((source) => {
+      if (!source) {
+        return false;
+      }
+
+      if (uniqueUrls.has(source.url)) {
+        return false;
+      }
+
+      uniqueUrls.add(source.url);
+      return true;
+    });
+}
+
+function detectSearchUsed(data, sources) {
+  const explicitFlag =
+    data?.search_used ??
+    data?.web_search_used ??
+    data?.search_performed ??
+    data?.tool_search_used;
+
+  if (typeof explicitFlag === "boolean") {
+    return explicitFlag;
+  }
+
+  const toolCalls = data?.tool_calls ?? data?.tool_events ?? data?.tools;
+  const toolCallText =
+    typeof toolCalls === "string"
+      ? toolCalls
+      : Array.isArray(toolCalls) || isPlainObject(toolCalls)
+        ? JSON.stringify(toolCalls)
+        : "";
+
+  if (/search_web|web_search|tool/i.test(toolCallText)) {
+    return true;
+  }
+
+  return Array.isArray(sources) && sources.length > 0;
+}
+
+function renderInlineAnswer(text, sources = []) {
   const value = String(text ?? "");
 
-  if (!value.includes("**")) {
+  if (!value.includes("**") && !/\[source\s*\d+\]/i.test(value)) {
     return value;
   }
 
   const nodes = [];
-  const boldRegex = /\*\*([^*][\s\S]*?)\*\*/g;
+  const tokenRegex = /\*\*([^*][\s\S]*?)\*\*|\[source\s*(\d+)\]/gi;
   let lastIndex = 0;
   let match;
 
-  while ((match = boldRegex.exec(value)) !== null) {
-    const [rawMatch, boldContent] = match;
+  while ((match = tokenRegex.exec(value)) !== null) {
+    const [rawMatch, boldContent, sourceIndexText] = match;
     const startIndex = match.index;
 
     if (startIndex > lastIndex) {
       nodes.push(value.slice(lastIndex, startIndex));
     }
 
-    nodes.push(
-      <strong key={`bold-${startIndex}-${rawMatch.length}`}>
-        {boldContent}
-      </strong>
-    );
+    if (boldContent) {
+      nodes.push(
+        <strong key={`bold-${startIndex}-${rawMatch.length}`}>
+          {boldContent}
+        </strong>
+      );
+    } else if (sourceIndexText) {
+      const sourceIndex = Number(sourceIndexText) - 1;
+      const source = sources[sourceIndex];
+      const sourceLabel = `[Source ${sourceIndexText}]`;
+
+      if (source?.url) {
+        nodes.push(
+          <a
+            key={`source-inline-${startIndex}`}
+            href={source.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="chat-source-inline-link"
+          >
+            {sourceLabel}
+          </a>
+        );
+      } else {
+        nodes.push(sourceLabel);
+      }
+    }
 
     lastIndex = startIndex + rawMatch.length;
   }
@@ -107,7 +285,107 @@ function renderChatMarkdown(text) {
   return nodes.length ? nodes : value;
 }
 
+function renderFormattedAnswer(text, sources = []) {
+  const value = String(text ?? "");
+  if (!value.trim()) {
+    return "";
+  }
+
+  const lines = value.split(/\r?\n/);
+  const blocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index] || "";
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      blocks.push(<div key={`answer-gap-${index}`} className="chat-answer-spacer" aria-hidden="true" />);
+      index += 1;
+      continue;
+    }
+
+    const unorderedMatch = trimmed.match(/^[-*]\s+(.+)/);
+    if (unorderedMatch) {
+      const items = [];
+      let listCursor = index;
+
+      while (listCursor < lines.length) {
+        const listLine = (lines[listCursor] || "").trim();
+        const listMatch = listLine.match(/^[-*]\s+(.+)/);
+        if (!listMatch) {
+          break;
+        }
+
+        items.push(listMatch[1]);
+        listCursor += 1;
+      }
+
+      blocks.push(
+        <ul key={`answer-ul-${index}`} className="chat-answer-list">
+          {items.map((item, itemIndex) => (
+            <li key={`answer-ul-${index}-${itemIndex}`}>{renderInlineAnswer(item, sources)}</li>
+          ))}
+        </ul>
+      );
+      index = listCursor;
+      continue;
+    }
+
+    const orderedMatch = trimmed.match(/^\d+\.\s+(.+)/);
+    if (orderedMatch) {
+      const items = [];
+      let listCursor = index;
+
+      while (listCursor < lines.length) {
+        const listLine = (lines[listCursor] || "").trim();
+        const listMatch = listLine.match(/^\d+\.\s+(.+)/);
+        if (!listMatch) {
+          break;
+        }
+
+        items.push(listMatch[1]);
+        listCursor += 1;
+      }
+
+      blocks.push(
+        <ol key={`answer-ol-${index}`} className="chat-answer-ordered-list">
+          {items.map((item, itemIndex) => (
+            <li key={`answer-ol-${index}-${itemIndex}`}>{renderInlineAnswer(item, sources)}</li>
+          ))}
+        </ol>
+      );
+      index = listCursor;
+      continue;
+    }
+
+    const isSectionHeading = /^[A-Z][A-Za-z\s]{2,32}:$/.test(trimmed);
+    const isImportantLine = /^(important|key takeaway|key takeaways|note|warning|summary)\s*:/i.test(
+      trimmed
+    );
+
+    blocks.push(
+      <p
+        key={`answer-line-${index}`}
+        className={`chat-answer-line${
+          isSectionHeading ? " chat-answer-line-heading" : ""
+        }${isImportantLine ? " chat-answer-line-important" : ""}`}
+      >
+        {renderInlineAnswer(trimmed, sources)}
+      </p>
+    );
+
+    index += 1;
+  }
+
+  return blocks;
+}
+
 function extractMainAnswer(data) {
+  if (typeof data?.final_answer === "string" && data.final_answer.trim()) {
+    return data.final_answer.trim();
+  }
+
   if (typeof data?.response === "string" && data.response.trim()) {
     return data.response.trim();
   }
@@ -202,6 +480,8 @@ function buildStructuredPayload(data) {
   const explanationItems = extractExplanationItems(data);
   const autopsy = extractAutopsyPayload(data);
   const perspectives = extractPerspectivePayload(data);
+  const sources = extractSources(data);
+  const searchUsed = detectSearchUsed(data, sources);
   const ethicalCheck = isPlainObject(data?.ethical_check)
     ? data.ethical_check
     : isPlainObject(data?.audit_results)
@@ -218,6 +498,8 @@ function buildStructuredPayload(data) {
     ethicalCheck,
     trustScore,
     confidence,
+    sources,
+    searchUsed,
   };
 }
 
@@ -321,6 +603,32 @@ function ExplanationPanel({ items }) {
       ) : (
         <p className="chat-explanation-hint">Click to view explanation points.</p>
       )}
+    </section>
+  );
+}
+
+function SourcesPanel({ sources, searchUsed }) {
+  const safeSources = Array.isArray(sources) ? sources.filter((source) => source?.url) : [];
+  if (!safeSources.length) {
+    return null;
+  }
+
+  return (
+    <section className="chat-sources-panel" aria-label="Sources">
+      <div className="chat-sources-header">
+        <p className="chat-sources-title">Sources</p>
+        {searchUsed ? <span className="chat-search-badge">Web search used</span> : null}
+      </div>
+      <ul className="chat-sources-list">
+        {safeSources.map((source, index) => (
+          <li key={`source-link-${index}`}>
+            <a href={source.url} target="_blank" rel="noreferrer noopener" className="chat-source-link">
+              {source.label || `[Source ${index + 1}]`}
+            </a>
+            <span className="chat-source-host">{source.title || source.url}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -500,6 +808,7 @@ function Dashboard() {
   const [historyErrorMessage, setHistoryErrorMessage] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isSearchLikely, setIsSearchLikely] = useState(false);
   const [activeInsightMessageId, setActiveInsightMessageId] = useState(null);
   const [insightLoadingMessageId, setInsightLoadingMessageId] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -521,6 +830,9 @@ function Dashboard() {
           message.id === activeInsightMessageId && hasStructuredInsights(message.structured)
       ) || null
     : null;
+  const loadingStatusMessages = isSearchLikely
+    ? SEARCH_AWARE_STATUS_MESSAGES
+    : THINKING_STATUS_MESSAGES;
 
   const loadHistory = useCallback(
     async (preferredChatId = null) => {
@@ -720,13 +1032,13 @@ function Dashboard() {
     }
 
     const intervalId = window.setInterval(() => {
-      setThinkingStepIndex((current) => (current + 1) % THINKING_STATUS_MESSAGES.length);
+      setThinkingStepIndex((current) => (current + 1) % loadingStatusMessages.length);
     }, 1350);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoading]);
+  }, [isLoading, loadingStatusMessages.length]);
 
   useEffect(() => {
     return () => {
@@ -756,6 +1068,7 @@ function Dashboard() {
     setHistoryErrorMessage("");
     setErrorMessage("");
     setInputValue("");
+    setIsSearchLikely(false);
     setActiveChatId(chatId);
     setActiveInsightMessageId(null);
     autoScrollEnabledRef.current = true;
@@ -788,6 +1101,7 @@ function Dashboard() {
     setActiveChatId(null);
     setActiveInsightMessageId(null);
     setInsightLoadingMessageId(null);
+    setIsSearchLikely(false);
     setErrorMessage("");
     setHistoryErrorMessage("");
     setInputValue("");
@@ -867,6 +1181,7 @@ function Dashboard() {
     typedMessageIdsRef.current = new Set();
     setActiveInsightMessageId(null);
     setInsightLoadingMessageId(null);
+    setIsSearchLikely(false);
     setErrorMessage("");
     setHistoryErrorMessage("");
     setInputValue("");
@@ -881,6 +1196,8 @@ function Dashboard() {
 
     stopTypingAnimation();
     autoScrollEnabledRef.current = true;
+    setThinkingStepIndex(0);
+    setIsSearchLikely(isLikelySearchIntent(nextMessage));
     setErrorMessage("");
     setInputValue("");
     setMessages((prev) => [...prev, createChatMessage("user", nextMessage)]);
@@ -932,6 +1249,7 @@ function Dashboard() {
       ]);
     } finally {
       setIsLoading(false);
+      setIsSearchLikely(false);
     }
   };
 
@@ -993,6 +1311,11 @@ function Dashboard() {
                     const isTypingMessage = isAssistant && typingState.messageId === message.id;
                     const displayedContent = isTypingMessage ? typingState.visibleText : message.content;
                     const responseText = displayedContent || (isTypingMessage ? "" : message.content);
+                    const messageSources = Array.isArray(message.structured?.sources)
+                      ? message.structured.sources
+                      : [];
+                    const hasSources = isAssistant && messageSources.length > 0;
+                    const searchUsed = Boolean(message.structured?.searchUsed);
                     const previousMessage = index > 0 ? messages[index - 1] : null;
                     const insightPrompt =
                       previousMessage?.role === "user" ? previousMessage.content : "";
@@ -1017,14 +1340,18 @@ function Dashboard() {
                           {message.role === "user" ? "You" : "Intellexa"}
                         </span>
 
-                        <p className="chat-response-text">
-                          {renderChatMarkdown(responseText)}
+                        <div className="chat-response-text">
+                          {renderFormattedAnswer(responseText, messageSources)}
                           {isTypingMessage ? (
                             <span className="chat-typing-cursor" aria-hidden="true">
                               |
                             </span>
                           ) : null}
-                        </p>
+                        </div>
+
+                        {hasSources ? (
+                          <SourcesPanel sources={messageSources} searchUsed={searchUsed} />
+                        ) : null}
 
                         {shouldShowInsightAction ? (
                           <div className="chat-message-actions">
@@ -1060,7 +1387,7 @@ function Dashboard() {
                     >
                       <span className="chat-message-role">Intellexa</span>
                       <p className="chat-thinking-label">
-                        {THINKING_STATUS_MESSAGES[thinkingStepIndex]}
+                        {loadingStatusMessages[thinkingStepIndex % loadingStatusMessages.length]}
                       </p>
                       <div className="chat-typing-dots" aria-hidden="true">
                         <span />
@@ -1097,7 +1424,7 @@ function Dashboard() {
                   <div className="chat-input-actions">
                     <p className="chat-input-hint">Press Enter to send, Shift + Enter for a new line.</p>
                     <button className="chat-send-button" type="submit" disabled={isLoading || !inputValue.trim()}>
-                      {isLoading ? "Thinking..." : "Send"}
+                      {isLoading ? (isSearchLikely ? "Searching..." : "Thinking...") : "Send"}
                     </button>
                   </div>
                 </form>

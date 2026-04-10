@@ -1636,19 +1636,71 @@ button {
 /* ── DASHBOARD ──────────────────────────────────────────── */
 .dashboard-page {
   min-height: 100vh;
-  padding: 96px 20px 36px;
+  padding: 88px 20px 28px;
   display: flex;
   justify-content: center;
   align-items: stretch;
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-page::before,
+.dashboard-page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.dashboard-page::before {
+  background:
+    radial-gradient(circle at 14% 18%, rgba(77, 255, 210, 0.11) 0%, transparent 40%),
+    radial-gradient(circle at 82% 26%, rgba(123, 111, 255, 0.14) 0%, transparent 42%),
+    radial-gradient(circle at 62% 80%, rgba(77, 255, 210, 0.06) 0%, transparent 45%);
+  transform: scale(1.03);
+  animation: dashboardBackgroundDrift 22s ease-in-out infinite alternate;
+}
+
+.dashboard-page::after {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.28;
+}
+
+.dashboard-page > * {
+  position: relative;
+  z-index: 1;
 }
 
 .dashboard-card {
   width: min(1180px, 100%);
-  background: var(--bg-card);
+  background:
+    linear-gradient(160deg, rgba(17, 17, 32, 0.96) 0%, rgba(14, 14, 30, 0.94) 100%);
   border: 1px solid var(--border);
-  padding: 28px;
+  padding: 24px;
   border-radius: 4px;
   box-shadow: var(--glow-accent);
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-card::before {
+  content: "";
+  position: absolute;
+  inset: -120% -40% auto;
+  height: 220px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(77, 255, 210, 0.06) 36%,
+    rgba(123, 111, 255, 0.08) 64%,
+    transparent 100%
+  );
+  transform: rotate(6deg);
+  animation: dashboardSweep 10s linear infinite;
+  pointer-events: none;
 }
 
 .dashboard-chat-card {
@@ -1918,7 +1970,9 @@ button {
   font-family: var(--font-mono);
   font-size: clamp(22px, 3vw, 34px);
   line-height: 1.1;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  animation: dashboardTitlePulse 3.4s ease-in-out infinite;
+  text-shadow: 0 0 0 rgba(77, 255, 210, 0);
 }
 
 .dashboard-subtitle {
@@ -1956,14 +2010,15 @@ button {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.015);
   border-radius: 4px;
-  padding: 14px;
+  padding: 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-behavior: smooth;
-  min-height: 340px;
-  max-height: 56vh;
+  min-height: 280px;
+  max-height: 52vh;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 12px;
 }
 
@@ -2023,8 +2078,122 @@ button {
   color: var(--text);
   font-size: 14px;
   line-height: 1.65;
-  white-space: pre-wrap;
+  white-space: normal;
   word-break: break-word;
+  display: grid;
+  gap: 8px;
+}
+
+.chat-answer-line {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.chat-answer-line-heading {
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.chat-answer-line-important {
+  border-left: 2px solid rgba(77, 255, 210, 0.45);
+  padding-left: 10px;
+  background: rgba(77, 255, 210, 0.04);
+  border-radius: 2px;
+}
+
+.chat-answer-spacer {
+  height: 4px;
+}
+
+.chat-answer-list,
+.chat-answer-ordered-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.chat-source-inline-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-source-inline-link:hover {
+  color: #9affdf;
+}
+
+.chat-sources-panel {
+  margin-top: 10px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+
+.chat-sources-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.chat-sources-title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.chat-search-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid rgba(77, 255, 210, 0.45);
+  border-radius: 999px;
+  padding: 4px 7px;
+  background: rgba(77, 255, 210, 0.08);
+}
+
+.chat-sources-list {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.chat-sources-list li {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chat-source-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-right: 6px;
+}
+
+.chat-source-link:hover {
+  text-decoration: underline;
+}
+
+.chat-source-host {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .chat-structured {
@@ -2360,7 +2529,7 @@ button {
 .chat-input-form {
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 12px;
+  padding: 10px;
   background: rgba(255, 255, 255, 0.015);
 }
 
@@ -2403,11 +2572,48 @@ button {
 }
 
 .chat-input-actions {
-  margin-top: 10px;
+  margin-top: 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+@keyframes dashboardBackgroundDrift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1.02);
+  }
+
+  100% {
+    transform: translate3d(-1.4%, -1%, 0) scale(1.06);
+  }
+}
+
+@keyframes dashboardSweep {
+  0% {
+    transform: translateY(0) rotate(6deg);
+    opacity: 0;
+  }
+
+  10% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(680px) rotate(6deg);
+    opacity: 0;
+  }
+}
+
+@keyframes dashboardTitlePulse {
+  0%,
+  100% {
+    text-shadow: 0 0 0 rgba(77, 255, 210, 0);
+  }
+
+  50% {
+    text-shadow: 0 0 24px rgba(77, 255, 210, 0.24);
+  }
 }
 
 .chat-input-hint {
@@ -2453,7 +2659,10 @@ button {
   .scroll-indicator,
   .pipeline-status-bar .status-dot,
   .auth-text-line,
-  .auth-text-word {
+  .auth-text-word,
+  .dashboard-page::before,
+  .dashboard-card::before,
+  .dashboard-title {
     animation: none !important;
   }
 }
@@ -2692,8 +2901,8 @@ button {
   }
 
   .chat-history {
-    min-height: 300px;
-    max-height: 50vh;
+    min-height: 240px;
+    max-height: 46vh;
   }
 
   .chat-message {
@@ -2761,11 +2970,11 @@ button {
   }
 
   .dashboard-page {
-    padding: 84px 12px 20px;
+    padding: 78px 12px 16px;
   }
 
   .dashboard-card {
-    padding: 18px 14px;
+    padding: 16px 12px;
   }
 
   .dashboard-chat-layout {
@@ -2798,7 +3007,8 @@ button {
   }
 
   .chat-history {
-    min-height: 260px;
+    min-height: 210px;
+    max-height: 42vh;
     padding: 10px;
   }
 
