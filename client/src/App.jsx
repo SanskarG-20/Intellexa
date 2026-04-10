@@ -11,6 +11,30 @@ const SPLINE_SCENE_URL = "https://prod.spline.design/EciRVKyhBcQYj-h8/scene.spli
 
 gsap.registerPlugin(ScrollTrigger);
 
+function getRuntimeMode() {
+  if (typeof window === "undefined") {
+    return { reducedMotion: false, isLiteMode: false };
+  }
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const isMobileViewport = window.matchMedia("(max-width: 900px)").matches;
+  const hardwareConcurrency = navigator.hardwareConcurrency ?? 4;
+  const deviceMemory = navigator.deviceMemory ?? 4;
+  const saveData = navigator.connection?.saveData === true;
+  const networkType = navigator.connection?.effectiveType;
+  const constrainedNetwork = networkType === "2g" || networkType === "3g" || networkType === "slow-2g";
+
+  const isLiteMode =
+    reducedMotion ||
+    isMobileViewport ||
+    saveData ||
+    constrainedNetwork ||
+    hardwareConcurrency <= 4 ||
+    deviceMemory <= 4;
+
+  return { reducedMotion, isLiteMode };
+}
+
 /* ── Headline structure: lines of words, with accent flags ── */
 const HEADLINE_LINES = [
   [
@@ -91,14 +115,42 @@ function App() {
   const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [runtimeMode, setRuntimeMode] = useState(() => getRuntimeMode());
   const [isHeroSplineLoaded, setIsHeroSplineLoaded] = useState(false);
-  const [isCtaSplineLoaded, setIsCtaSplineLoaded] = useState(false);
   const [shouldRenderHeroSpline, setShouldRenderHeroSpline] = useState(false);
-  const [shouldRenderCtaSpline, setShouldRenderCtaSpline] = useState(false);
+  const [canLoadHeroSpline, setCanLoadHeroSpline] = useState(false);
   const pipelineRef = useRef(null);
   const heroSplineRef = useRef(null);
-  const ctaSplineRef = useRef(null);
   const lenisRef = useRef(null);
+  const isLiteMode = runtimeMode.isLiteMode;
+  const reducedMotion = runtimeMode.reducedMotion;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updateMode = () => setRuntimeMode(getRuntimeMode());
+
+    updateMode();
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", updateMode);
+    } else if (typeof mediaQuery.addListener === "function") {
+      mediaQuery.addListener(updateMode);
+    }
+
+    window.addEventListener("resize", updateMode);
+
+    return () => {
+      if (typeof mediaQuery.removeEventListener === "function") {
+        mediaQuery.removeEventListener("change", updateMode);
+      } else if (typeof mediaQuery.removeListener === "function") {
+        mediaQuery.removeListener(updateMode);
+      }
+
+      window.removeEventListener("resize", updateMode);
+    };
+  }, []);
 
   /* Scroll listener for navbar */
   useEffect(() => {
@@ -110,6 +162,11 @@ function App() {
 
   /* Lenis smooth scroll */
   useEffect(() => {
+    if (isLiteMode || reducedMotion) {
+      document.documentElement.style.scrollBehavior = "auto";
+      return undefined;
+    }
+
     document.documentElement.style.scrollBehavior = "auto";
 
     const lenis = new Lenis({
@@ -136,9 +193,48 @@ function App() {
       lenisRef.current = null;
       lenis.destroy();
     };
-  }, []);
+  }, [isLiteMode, reducedMotion]);
 
   useEffect(() => {
+    if (isLiteMode) {
+      setCanLoadHeroSpline(false);
+      return undefined;
+    }
+
+    let timeoutId;
+    let idleId;
+
+    const enableSplineLoad = () => {
+      timeoutId = window.setTimeout(() => {
+        setCanLoadHeroSpline(true);
+      }, 320);
+    };
+
+    if (typeof window.requestIdleCallback === "function") {
+      idleId = window.requestIdleCallback(enableSplineLoad, { timeout: 1200 });
+    } else {
+      timeoutId = window.setTimeout(() => {
+        setCanLoadHeroSpline(true);
+      }, 900);
+    }
+
+    return () => {
+      if (typeof window.cancelIdleCallback === "function" && idleId) {
+        window.cancelIdleCallback(idleId);
+      }
+
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [isLiteMode]);
+
+  useEffect(() => {
+    if (isLiteMode) {
+      setShouldRenderHeroSpline(false);
+      return undefined;
+    }
+
     const observeSpline = (element, setVisible) => {
       if (!element) return undefined;
 
@@ -149,7 +245,7 @@ function App() {
             observer.unobserve(entry.target);
           }
         },
-        { rootMargin: "240px 0px", threshold: 0.05 }
+        { rootMargin: "120px 0px", threshold: 0.1 }
       );
 
       observer.observe(element);
@@ -157,19 +253,21 @@ function App() {
     };
 
     const heroObserver = observeSpline(heroSplineRef.current, setShouldRenderHeroSpline);
-    const ctaObserver = observeSpline(ctaSplineRef.current, setShouldRenderCtaSpline);
 
     return () => {
       heroObserver?.disconnect();
-      ctaObserver?.disconnect();
     };
-  }, []);
+  }, [isLiteMode]);
 
   /* GSAP motion system */
   useEffect(() => {
-    const ctx = gsap.context(() => {
-      gsap.set("body", { opacity: 1 });
+    gsap.set("body", { opacity: 1 });
 
+    if (isLiteMode || reducedMotion) {
+      return undefined;
+    }
+
+    const ctx = gsap.context(() => {
       gsap.fromTo(
         ".navbar",
         { yPercent: -100, opacity: 0 },
@@ -326,7 +424,7 @@ function App() {
       ctx.revert();
       ScrollTrigger.getAll().forEach((t) => t.kill());
     };
-  }, []);
+  }, [isLiteMode, reducedMotion]);
 
   const handleNavClick = () => setIsMobileMenuOpen(false);
 
@@ -338,6 +436,12 @@ function App() {
   const handleCTAClick = useCallback(() => {
     const targetRoute = isSignedIn ? "/dashboard" : "/sign-in";
 
+    if (isLiteMode || reducedMotion) {
+      setIsMobileMenuOpen(false);
+      navigate(targetRoute);
+      return;
+    }
+
     gsap.to("body", {
       opacity: 0,
       duration: 0.4,
@@ -348,7 +452,7 @@ function App() {
         gsap.set("body", { opacity: 1 });
       },
     });
-  }, [isSignedIn, navigate]);
+  }, [isSignedIn, navigate, isLiteMode, reducedMotion]);
 
   const handleScrollToPipeline = useCallback(() => {
     setIsMobileMenuOpen(false);
@@ -364,7 +468,7 @@ function App() {
   let wordIndex = 0;
 
   return (
-    <div className="landing-page">
+    <div className={`landing-page ${isLiteMode ? "lite-mode" : ""}`}>
       {/* Fixed glow blobs */}
       <div className="glow-blob glow-blob-1" />
       <div className="glow-blob glow-blob-2" />
@@ -476,24 +580,31 @@ function App() {
 
               {/* Spline Right Column */}
               <div className="hero-spline" ref={heroSplineRef}>
-                <div className="spline-wrapper">
-                  {/* Fading Skeleton */}
-                  <div className={`spline-skeleton ${isHeroSplineLoaded ? "fade-out" : ""}`}>
-                    <span>[ LOADING 3D RENDER... ]</span>
+                {isLiteMode ? (
+                  <div className="spline-lite-fallback">
+                    <span className="spline-lite-chip">[ ADAPTIVE PERFORMANCE MODE ]</span>
+                    <p>Smooth rendering enabled for this device profile.</p>
                   </div>
+                ) : (
+                  <div className="spline-wrapper">
+                    {/* Fading Skeleton */}
+                    <div className={`spline-skeleton ${isHeroSplineLoaded ? "fade-out" : ""}`}>
+                      <span>[ LOADING 3D RENDER... ]</span>
+                    </div>
 
-                  {/* Spline Component */}
-                  <div className={`spline-container ${isHeroSplineLoaded ? "is-visible" : ""}`}>
-                    {shouldRenderHeroSpline ? (
-                      <Suspense fallback={null}>
-                        <Spline
-                          scene={SPLINE_SCENE_URL}
-                          onLoad={() => setIsHeroSplineLoaded(true)}
-                        />
-                      </Suspense>
-                    ) : null}
+                    {/* Spline Component */}
+                    <div className={`spline-container ${isHeroSplineLoaded ? "is-visible" : ""}`}>
+                      {shouldRenderHeroSpline && canLoadHeroSpline ? (
+                        <Suspense fallback={null}>
+                          <Spline
+                            scene={SPLINE_SCENE_URL}
+                            onLoad={() => setIsHeroSplineLoaded(true)}
+                          />
+                        </Suspense>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
 
@@ -669,22 +780,7 @@ function App() {
 
           {/* ── TERMINAL CTA ─────────────────────── */}
           <section className="cta-section" id="demo">
-            {/* Background Spline Instance */}
-            <div className="cta-spline-background" ref={ctaSplineRef}>
-              {/* Spline Loading Skeleton */}
-              <div className={`cta-spline-skeleton ${isCtaSplineLoaded ? "fade-out" : ""}`} />
-
-              <div className={`cta-spline-container ${isCtaSplineLoaded ? "is-visible" : ""}`}>
-                {shouldRenderCtaSpline ? (
-                  <Suspense fallback={null}>
-                    <Spline
-                      scene={SPLINE_SCENE_URL}
-                      onLoad={() => setIsCtaSplineLoaded(true)}
-                    />
-                  </Suspense>
-                ) : null}
-              </div>
-            </div>
+            <div className="cta-spline-background cta-surface-glow" aria-hidden="true" />
 
             <div className="terminal-frame reveal-up">
               {/* 4-corner brackets */}

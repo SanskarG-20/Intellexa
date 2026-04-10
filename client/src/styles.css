@@ -636,11 +636,46 @@ button {
   opacity: 1;
 }
 
+.spline-lite-fallback {
+  width: calc(100% - 32px);
+  height: calc(100% - 32px);
+  margin: 16px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(77,255,210,0.12) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(123,111,255,0.14) 0%, transparent 52%),
+    rgba(255,255,255,0.02);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  padding: 28px;
+}
+
+.spline-lite-fallback p {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 280px;
+}
+
+.spline-lite-chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+
 /* ── PIPELINE SECTION ─────────────────────────────────────── */
 .pipeline-section {
   padding: 120px 28px;
   max-width: 1200px;
   margin: 0 auto;
+  content-visibility: auto;
+  contain-intrinsic-size: 900px;
 }
 
 /* Header */
@@ -786,6 +821,8 @@ button {
   padding: 120px 28px;
   max-width: 1200px;
   margin: 0 auto;
+  content-visibility: auto;
+  contain-intrinsic-size: 1100px;
 }
 
 .features-label {
@@ -1071,6 +1108,8 @@ button {
   border-top: 1px solid var(--border);
   max-width: 1200px;
   margin: 0 auto;
+  content-visibility: auto;
+  contain-intrinsic-size: 520px;
 }
 
 .metrics-label {
@@ -1146,6 +1185,8 @@ button {
   max-width: 800px;
   margin: 0 auto;
   position: relative;
+  content-visibility: auto;
+  contain-intrinsic-size: 720px;
 }
 
 .terminal-frame {
@@ -1171,6 +1212,12 @@ button {
   opacity: 0.35;
   pointer-events: none;
   z-index: 0;
+}
+
+.cta-surface-glow {
+  background:
+    radial-gradient(circle at 30% 28%, rgba(77,255,210,0.32) 0%, rgba(77,255,210,0.1) 40%, transparent 72%),
+    radial-gradient(circle at 70% 70%, rgba(123,111,255,0.24) 0%, rgba(123,111,255,0.08) 46%, transparent 76%);
 }
 
 .cta-spline-background::before {
@@ -1630,6 +1677,37 @@ button {
 
 .dashboard-signout:hover {
   background: var(--accent-dim);
+}
+
+/* ── MOTION SAFETY ───────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .hud-chip,
+  .scroll-indicator,
+  .pipeline-status-bar .status-dot,
+  .auth-text-line,
+  .auth-text-word {
+    animation: none !important;
+  }
+}
+
+.lite-mode .hud-chip,
+.lite-mode .scroll-indicator,
+.lite-mode .pipeline-status-bar .status-dot {
+  animation: none;
+}
+
+.lite-mode .glow-blob {
+  filter: blur(56px);
+  opacity: 0.82;
 }
 
 /* ── SCROLL FADE-UP UTILITY ───────────────────────────────── */
