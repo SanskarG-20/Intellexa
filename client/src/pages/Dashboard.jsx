@@ -10,6 +10,15 @@ const PERSPECTIVE_TABS = [
   { key: "care_ethics", label: "Care ethics" },
 ];
 
+const THINKING_STATUS_MESSAGES = [
+  "Analyzing your prompt...",
+  "Running ethical checks...",
+  "Cross-verifying reasoning...",
+  "Finalizing response...",
+];
+
+const AUTO_SCROLL_THRESHOLD_PX = 88;
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -38,6 +47,29 @@ function formatValue(value) {
   }
 
   return String(value);
+}
+
+function toFriendlyChatErrorMessage(rawMessage) {
+  const fallback = "Unable to reach Intellexa right now. Please try again.";
+  const message = String(rawMessage || "").trim();
+
+  if (!message) {
+    return fallback;
+  }
+
+  if (/401|unauthorized|token/i.test(message)) {
+    return "Your session expired or token is invalid. Sign in again and retry.";
+  }
+
+  if (/network|cors|unable to reach|failed to fetch/i.test(message)) {
+    return "Cannot reach the AI server. Check backend status and network, then retry.";
+  }
+
+  if (/timeout|timed out/i.test(message)) {
+    return "The request timed out. Please retry with a shorter or clearer prompt.";
+  }
+
+  return message;
 }
 
 function extractMainAnswer(data) {
@@ -236,12 +268,14 @@ function ExplanationPanel({ items }) {
   );
 }
 
-function createChatMessage(role, content, structured = null) {
+function createChatMessage(role, content, structured = null, options = {}) {
   return {
     id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     role,
-    content,
+    content: String(content ?? ""),
     structured,
+    animate: Boolean(options.animate),
+    isError: Boolean(options.isError),
   };
 }
 
@@ -287,7 +321,17 @@ function Dashboard() {
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [thinkingStepIndex, setThinkingStepIndex] = useState(0);
+  const [typingState, setTypingState] = useState({
+    messageId: null,
+    visibleText: "",
+    visibleLength: 0,
+  });
   const historyRef = useRef(null);
+  const typingRafRef = useRef(null);
+  const typedMessageIdsRef = useRef(new Set());
+  const autoScrollEnabledRef = useRef(true);
+  const previousMessageCountRef = useRef(messages.length);
 
   const loadHistory = useCallback(
     async (preferredChatId = null) => {
@@ -332,22 +376,186 @@ function Dashboard() {
     void loadHistory();
   }, [loadHistory]);
 
-  useEffect(() => {
-    if (!historyRef.current) return;
+  const stopTypingAnimation = useCallback(() => {
+    if (typingRafRef.current !== null) {
+      window.cancelAnimationFrame(typingRafRef.current);
+      typingRafRef.current = null;
+    }
 
-    historyRef.current.scrollTo({
-      top: historyRef.current.scrollHeight,
-      behavior: "smooth",
+    setTypingState((current) => {
+      if (!current.messageId) {
+        return current;
+      }
+
+      return {
+        messageId: null,
+        visibleText: "",
+        visibleLength: 0,
+      };
     });
-  }, [messages, isLoading]);
+  }, []);
+
+  const scrollToChatBottom = useCallback((behavior = "auto") => {
+    const historyNode = historyRef.current;
+    if (!historyNode) {
+      return;
+    }
+
+    historyNode.scrollTo({
+      top: historyNode.scrollHeight,
+      behavior,
+    });
+  }, []);
+
+  const handleHistoryScroll = useCallback(() => {
+    const historyNode = historyRef.current;
+    if (!historyNode) {
+      return;
+    }
+
+    const distanceFromBottom =
+      historyNode.scrollHeight - historyNode.scrollTop - historyNode.clientHeight;
+    autoScrollEnabledRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX;
+  }, []);
+
+  const startTypingAnimation = useCallback(
+    (messageId, fullText) => {
+      const text = String(fullText || "");
+
+      stopTypingAnimation();
+
+      if (!text) {
+        return;
+      }
+
+      const totalLength = text.length;
+      const step = totalLength > 420 ? 4 : totalLength > 220 ? 2 : 1;
+      const durationMs = Math.max(420, Math.min(2600, totalLength * 16));
+      let startTime = null;
+      let previousLength = 0;
+
+      setTypingState({
+        messageId,
+        visibleText: "",
+        visibleLength: 0,
+      });
+
+      const tick = (timestamp) => {
+        if (startTime === null) {
+          startTime = timestamp;
+        }
+
+        const progress = Math.min(1, (timestamp - startTime) / durationMs);
+        const scaledLength = Math.floor(totalLength * progress);
+        const steppedLength =
+          progress < 1
+            ? Math.floor(scaledLength / step) * step
+            : totalLength;
+        const nextLength = Math.max(previousLength, Math.min(totalLength, steppedLength));
+
+        if (nextLength !== previousLength || progress === 1) {
+          previousLength = nextLength;
+          setTypingState({
+            messageId,
+            visibleText: text.slice(0, nextLength),
+            visibleLength: nextLength,
+          });
+        }
+
+        if (progress < 1) {
+          typingRafRef.current = window.requestAnimationFrame(tick);
+          return;
+        }
+
+        typingRafRef.current = null;
+        setTypingState({
+          messageId: null,
+          visibleText: "",
+          visibleLength: 0,
+        });
+      };
+
+      typingRafRef.current = window.requestAnimationFrame(tick);
+    },
+    [stopTypingAnimation]
+  );
+
+  useEffect(() => {
+    const hasNewMessage = messages.length !== previousMessageCountRef.current;
+    previousMessageCountRef.current = messages.length;
+
+    if (!autoScrollEnabledRef.current) {
+      return undefined;
+    }
+
+    const behavior = hasNewMessage ? "smooth" : "auto";
+    const rafId = window.requestAnimationFrame(() => {
+      scrollToChatBottom(behavior);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [messages.length, isLoading, typingState.visibleLength, scrollToChatBottom]);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    if (typingState.messageId) {
+      return;
+    }
+
+    const nextMessageToAnimate = [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          message.animate &&
+          !typedMessageIdsRef.current.has(message.id)
+      );
+
+    if (!nextMessageToAnimate) {
+      return;
+    }
+
+    typedMessageIdsRef.current.add(nextMessageToAnimate.id);
+    startTypingAnimation(nextMessageToAnimate.id, nextMessageToAnimate.content);
+  }, [isLoading, messages, startTypingAnimation, typingState.messageId]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setThinkingStepIndex(0);
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setThinkingStepIndex((current) => (current + 1) % THINKING_STATUS_MESSAGES.length);
+    }, 1350);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isLoading]);
+
+  useEffect(() => {
+    return () => {
+      if (typingRafRef.current !== null) {
+        window.cancelAnimationFrame(typingRafRef.current);
+      }
+    };
+  }, []);
 
   const handleSelectHistoryItem = useCallback(async (chatId) => {
     if (!chatId) {
       return;
     }
 
+    stopTypingAnimation();
     setHistoryErrorMessage("");
     setActiveChatId(chatId);
+    autoScrollEnabledRef.current = true;
 
     try {
       const chat = await getChatById(chatId);
@@ -365,7 +573,7 @@ function Dashboard() {
           : "Failed to load selected chat history.";
       setHistoryErrorMessage(message);
     }
-  }, []);
+  }, [stopTypingAnimation]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -373,6 +581,8 @@ function Dashboard() {
     const nextMessage = inputValue.trim();
     if (!nextMessage || isLoading) return;
 
+    stopTypingAnimation();
+    autoScrollEnabledRef.current = true;
     setErrorMessage("");
     setInputValue("");
     setMessages((prev) => [...prev, createChatMessage("user", nextMessage)]);
@@ -385,7 +595,9 @@ function Dashboard() {
 
       setMessages((prev) => [
         ...prev,
-        createChatMessage("assistant", aiText, structuredPayload),
+        createChatMessage("assistant", aiText, structuredPayload, {
+          animate: true,
+        }),
       ]);
 
       if (userId) {
@@ -401,16 +613,17 @@ function Dashboard() {
         }
       }
     } catch (error) {
-      const fallback = "Unable to reach Intellexa right now. Please try again.";
-      const message = error instanceof Error ? error.message : fallback;
-      const userVisibleMessage = message || fallback;
+      const rawMessage = error instanceof Error ? error.message : "";
+      const userVisibleMessage = toFriendlyChatErrorMessage(rawMessage);
 
       setErrorMessage(userVisibleMessage);
       setMessages((prev) => [
         ...prev,
         createChatMessage(
           "assistant",
-          `I hit an issue while processing that request: ${userVisibleMessage}`
+          `I hit an issue while processing that request: ${userVisibleMessage}`,
+          null,
+          { isError: true }
         ),
       ]);
     } finally {
@@ -459,9 +672,18 @@ function Dashboard() {
           />
 
           <div className="dashboard-chat-main">
-            <div className="chat-history" ref={historyRef} aria-live="polite" aria-busy={isLoading}>
+            <div
+              className="chat-history"
+              ref={historyRef}
+              onScroll={handleHistoryScroll}
+              aria-live="polite"
+              aria-busy={isLoading}
+            >
               {messages.map((message) => {
                 const isAssistant = message.role === "assistant";
+                const isTypingMessage = isAssistant && typingState.messageId === message.id;
+                const displayedContent = isTypingMessage ? typingState.visibleText : message.content;
+                const responseText = displayedContent || (isTypingMessage ? "" : message.content);
                 const structured = message.structured;
                 const hasAutopsy = Boolean(structured?.autopsy);
                 const hasPerspectives = Boolean(
@@ -483,7 +705,9 @@ function Dashboard() {
                 return (
                   <article
                     key={message.id}
-                    className={`chat-message chat-message-${message.role}`}
+                    className={`chat-message chat-message-${message.role}${
+                      message.isError ? " chat-message-error" : ""
+                    }`}
                   >
                     <span className="chat-message-role">
                       {message.role === "user" ? "You" : "Intellexa"}
@@ -529,14 +753,19 @@ function Dashboard() {
                           </section>
                         ) : null}
 
-                        {hasPerspectives ? (
-                          <PerspectiveTabs perspectives={structured.perspectives} />
-                        ) : (
-                          <section className="chat-structured-panel">
-                            <h3 className="chat-panel-title">Answer</h3>
-                            <p>{structured.answer || message.content}</p>
-                          </section>
-                        )}
+                        <section className="chat-structured-panel">
+                          <h3 className="chat-panel-title">Answer</h3>
+                          <p className="chat-response-text">
+                            {responseText}
+                            {isTypingMessage ? (
+                              <span className="chat-typing-cursor" aria-hidden="true">
+                                |
+                              </span>
+                            ) : null}
+                          </p>
+                        </section>
+
+                        {hasPerspectives ? <PerspectiveTabs perspectives={structured.perspectives} /> : null}
 
                         {hasExplanation ? <ExplanationPanel items={structured.explanationItems} /> : null}
 
@@ -576,18 +805,35 @@ function Dashboard() {
                         ) : null}
                       </div>
                     ) : (
-                      <p>{message.content}</p>
+                      <p className="chat-response-text">
+                        {responseText}
+                        {isTypingMessage ? (
+                          <span className="chat-typing-cursor" aria-hidden="true">
+                            |
+                          </span>
+                        ) : null}
+                      </p>
                     )}
                   </article>
                 );
               })}
 
               {isLoading ? (
-                <article className="chat-message chat-message-assistant chat-message-loading" aria-label="Intellexa is typing">
+                <article
+                  className="chat-message chat-message-assistant chat-message-loading"
+                  aria-label="Intellexa is thinking"
+                  role="status"
+                >
                   <span className="chat-message-role">Intellexa</span>
+                  <p className="chat-thinking-label">
+                    {THINKING_STATUS_MESSAGES[thinkingStepIndex]}
+                  </p>
                   <div className="chat-typing-dots" aria-hidden="true">
                     <span />
                     <span />
+                    <span />
+                  </div>
+                  <div className="chat-thinking-progress" aria-hidden="true">
                     <span />
                   </div>
                 </article>
@@ -602,7 +848,13 @@ function Dashboard() {
                 id="dashboard-chat-input"
                 className="chat-input"
                 value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
+                onChange={(event) => {
+                  if (errorMessage) {
+                    setErrorMessage("");
+                  }
+
+                  setInputValue(event.target.value);
+                }}
                 onKeyDown={handleInputKeyDown}
                 rows={2}
                 placeholder="Type your question here..."
