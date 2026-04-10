@@ -72,6 +72,42 @@ function toFriendlyChatErrorMessage(rawMessage) {
   return message;
 }
 
+function renderChatMarkdown(text) {
+  const value = String(text ?? "");
+
+  if (!value.includes("**")) {
+    return value;
+  }
+
+  const nodes = [];
+  const boldRegex = /\*\*([^*][\s\S]*?)\*\*/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = boldRegex.exec(value)) !== null) {
+    const [rawMatch, boldContent] = match;
+    const startIndex = match.index;
+
+    if (startIndex > lastIndex) {
+      nodes.push(value.slice(lastIndex, startIndex));
+    }
+
+    nodes.push(
+      <strong key={`bold-${startIndex}-${rawMatch.length}`}>
+        {boldContent}
+      </strong>
+    );
+
+    lastIndex = startIndex + rawMatch.length;
+  }
+
+  if (lastIndex < value.length) {
+    nodes.push(value.slice(lastIndex));
+  }
+
+  return nodes.length ? nodes : value;
+}
+
 function extractMainAnswer(data) {
   if (typeof data?.response === "string" && data.response.trim()) {
     return data.response.trim();
@@ -770,7 +806,7 @@ function Dashboard() {
                         <section className="chat-structured-panel">
                           <h3 className="chat-panel-title">Answer</h3>
                           <p className="chat-response-text">
-                            {responseText}
+                            {renderChatMarkdown(responseText)}
                             {isTypingMessage ? (
                               <span className="chat-typing-cursor" aria-hidden="true">
                                 |
@@ -820,7 +856,7 @@ function Dashboard() {
                       </div>
                     ) : (
                       <p className="chat-response-text">
-                        {responseText}
+                        {renderChatMarkdown(responseText)}
                         {isTypingMessage ? (
                           <span className="chat-typing-cursor" aria-hidden="true">
                             |
