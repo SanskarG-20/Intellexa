@@ -1884,6 +1884,48 @@ button {
   color: var(--accent);
 }
 
+.chat-panel-title-inline {
+  margin: 0;
+}
+
+.chat-explanation-panel {
+  border-color: rgba(77, 255, 210, 0.35);
+  background: rgba(77, 255, 210, 0.04);
+}
+
+.chat-explanation-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+}
+
+.chat-explanation-chevron {
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.chat-explanation-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.chat-explanation-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.chat-explanation-list {
+  margin-top: 8px;
+}
+
 .chat-autopsy-title {
   color: #ffd38d;
 }

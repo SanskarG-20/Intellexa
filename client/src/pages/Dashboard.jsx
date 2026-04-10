@@ -201,6 +201,41 @@ function PerspectiveTabs({ perspectives }) {
   );
 }
 
+function ExplanationPanel({ items }) {
+  const hasItems = Array.isArray(items) && items.length > 0;
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (!hasItems) {
+    return null;
+  }
+
+  return (
+    <section className="chat-structured-panel chat-explanation-panel">
+      <button
+        type="button"
+        className="chat-explanation-toggle"
+        onClick={() => setIsExpanded((value) => !value)}
+        aria-expanded={isExpanded}
+      >
+        <span className="chat-panel-title chat-panel-title-inline">Why this answer?</span>
+        <span className={`chat-explanation-chevron ${isExpanded ? "is-open" : ""}`} aria-hidden="true">
+          ▾
+        </span>
+      </button>
+
+      {isExpanded ? (
+        <ul className="chat-panel-list chat-explanation-list">
+          {items.map((item, index) => (
+            <li key={`explanation-${index}`}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="chat-explanation-hint">Click to view explanation points.</p>
+      )}
+    </section>
+  );
+}
+
 function createChatMessage(role, content, structured = null) {
   return {
     id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -503,16 +538,7 @@ function Dashboard() {
                           </section>
                         )}
 
-                        {hasExplanation ? (
-                          <section className="chat-structured-panel">
-                            <h3 className="chat-panel-title">Explanation</h3>
-                            <ul className="chat-panel-list">
-                              {structured.explanationItems.map((item, index) => (
-                                <li key={`${message.id}-${index}`}>{item}</li>
-                              ))}
-                            </ul>
-                          </section>
-                        ) : null}
+                        {hasExplanation ? <ExplanationPanel items={structured.explanationItems} /> : null}
 
                         {hasEthicalCheck ? (
                           <section className="chat-structured-panel">
