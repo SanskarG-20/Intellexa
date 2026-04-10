@@ -33,7 +33,7 @@
 }
 
 html {
-  scroll-behavior: auto;
+  scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -323,14 +323,14 @@ button {
   min-height: 100vh;
   display: flex;
   align-items: center;
-  padding: 100px 28px 80px;
+  padding: 80px 0 0;
 }
 
 .hero-container {
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-items: center;
-  min-height: 100vh;
+  min-height: calc(100vh - 80px);
   max-width: 1400px;
   margin: 0 auto;
   padding: 0 28px;
@@ -566,7 +566,8 @@ button {
 /* ── HERO SPLINE ──────────────────────────────────────────── */
 .hero-spline {
   position: relative;
-  height: 100vh;
+  height: 85vh;
+  max-height: 800px;
   overflow: hidden;
 }
 
@@ -671,11 +672,9 @@ button {
 
 /* ── PIPELINE SECTION ─────────────────────────────────────── */
 .pipeline-section {
-  padding: 120px 28px;
+  padding: 100px 28px;
   max-width: 1200px;
   margin: 0 auto;
-  content-visibility: auto;
-  contain-intrinsic-size: 900px;
 }
 
 /* Header */
@@ -1104,7 +1103,7 @@ button {
 
 /* ── SYSTEM METRICS SECTION ───────────────────────────────── */
 .metrics-section {
-  padding: 100px 28px;
+  padding: 80px 28px;
   border-top: 1px solid var(--border);
   max-width: 1200px;
   margin: 0 auto;
@@ -1720,6 +1719,17 @@ button {
 .fade-up.is-visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* Initial hidden state for GSAP reveal-up elements */
+.reveal-up {
+  opacity: 0;
+  transform: translateY(40px);
+}
+
+.lite-mode .reveal-up {
+  opacity: 1;
+  transform: none;
 }
 
 /* ── RESPONSIVE ───────────────────────────────────────────── */

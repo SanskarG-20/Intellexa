@@ -399,22 +399,20 @@ function App() {
           toggleActions: "play none none none",
           once: true,
           onEnter: () => {
-            gsap.to(
-              { val: 0 },
-              {
-                val: target,
-                duration: 2,
-                ease: "power2.out",
-                onUpdate: function () {
-                  const current = this.targets()[0].val;
-                  if (isDecimal) {
-                    valueEl.textContent = current.toFixed(1).replace(/\.0$/, "");
-                  } else {
-                    valueEl.textContent = String(Math.round(current));
-                  }
-                },
-              }
-            );
+            const counter = { val: 0 };
+            gsap.to(counter, {
+              val: target,
+              duration: 2,
+              ease: "power2.out",
+              onUpdate: () => {
+                const current = counter.val;
+                if (isDecimal) {
+                  valueEl.textContent = current.toFixed(1).replace(/\.0$/, "");
+                } else {
+                  valueEl.textContent = String(Math.round(current));
+                }
+              },
+            });
           },
         });
       });
