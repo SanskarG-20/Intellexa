@@ -1,127 +1,102 @@
-import json
-import httpx
-from typing import Dict, Any
-from app.core.config import settings
+from typing import Any, Dict, Iterable
+
 
 class TrustService:
     """
-    Service responsible for calculating a trust score and confidence level
-    based on the autopsy and ethics audit results.
+    Deterministic trust scoring utility.
+
+    Inputs:
+    - context relevance (bool or numeric)
+    - bias_detected (bool)
+    - response length/completeness
     """
 
-    GEMINI_API_URL_TEMPLATE = (
-        "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    )
+    @classmethod
+    def calculate_trust_score(
+        cls,
+        context_relevance: Any,
+        bias_detected: bool,
+        response_text: str,
+        explanation: Iterable[str] | None = None,
+    ) -> Dict[str, int]:
+        score = 100
 
-    TRUST_SYSTEM_PROMPT = """You are a trust evaluation engine.
+        context_score = cls._normalize_context_relevance(context_relevance)
+        context_penalty = round((1 - context_score) * 30)
+        score -= context_penalty
 
-Calculate a trust score (0–100) for the AI response.
+        if bool(bias_detected):
+            score -= 35
 
-INPUTS:
-- Autopsy result
-- Ethical check result
-- Confidence in reasoning
+        response_length = len(str(response_text or "").strip())
+        is_complete = cls._is_complete_response(response_length, explanation)
+        score -= cls._vagueness_penalty(response_length, is_complete)
 
-TASK:
-1. Assign a trust score
-2. Assign confidence level (low / medium / high)
-3. Justify briefly
+        return {"trust_score": max(0, min(100, int(round(score))))}
 
-OUTPUT (JSON ONLY):
+    @staticmethod
+    def _normalize_context_relevance(value: Any) -> float:
+        if isinstance(value, bool):
+            return 1.0 if value else 0.0
 
-{
-  "trust_score": 0,
-  "confidence": "low | medium | high",
-  "justification": "..."
-}
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return 0.5
 
-RULES:
-- Penalize bias or weak reasoning
-- Higher score = more reliable and fair
-- Keep justification short"""
+        if 0 <= numeric <= 1:
+            return numeric
+        if 0 <= numeric <= 100:
+            return numeric / 100
 
-    class AIServiceError(RuntimeError):
-        def __init__(self, message: str, status_code: int = 502):
-            super().__init__(message)
-            self.message = message
-            self.status_code = status_code
+        return max(0.0, min(1.0, numeric))
+
+    @staticmethod
+    def _is_complete_response(response_length: int, explanation: Iterable[str] | None) -> bool:
+        if response_length >= 120:
+            return True
+
+        if not explanation:
+            return False
+
+        items = [str(item).strip() for item in explanation if str(item).strip()]
+        return len(items) >= 3 and response_length >= 80
+
+    @staticmethod
+    def _vagueness_penalty(response_length: int, is_complete: bool) -> int:
+        if not is_complete and response_length < 60:
+            return 25
+        if not is_complete:
+            return 20
+        if response_length < 80:
+            return 12
+        return 0
 
     @classmethod
     async def evaluate_trust(cls, autopsy: Dict[str, Any], ethics: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Synthesize the autopsy and audit results to calculate a final trust score.
+        Compatibility wrapper retained for older orchestrators.
         """
-        api_key = settings.GEMINI_API_KEY.strip()
-        if not api_key:
-            return cls._build_local_trust(autopsy, ethics)
-
-        model = settings.GEMINI_MODEL.strip()
-        url = cls.GEMINI_API_URL_TEMPLATE.format(model=model)
-
-        prompt = (
-            f"AUTOPSY:\n\"\"\"\n{json.dumps(autopsy)}\n\"\"\"\n\n"
-            f"ETHICS CHECK:\n\"\"\"\n{json.dumps(ethics)}\n\"\"\""
+        bias_detected = bool((ethics or {}).get("bias_detected", False))
+        score_payload = cls.calculate_trust_score(
+            context_relevance=0.5,
+            bias_detected=bias_detected,
+            response_text="",
+            explanation=[],
         )
+        score = int(score_payload.get("trust_score", 0))
 
-        payload = {
-            "systemInstruction": {
-                "parts": [{"text": cls.TRUST_SYSTEM_PROMPT}],
-            },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": prompt}],
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.2,
-                "responseMimeType": "application/json",
-            },
-        }
-
-        timeout = httpx.Timeout(30.0, connect=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                response = await client.post(
-                    f"{url}?key={api_key}",
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    raw_content = data["candidates"][0]["content"]["parts"][0]["text"]
-                    return json.loads(raw_content)
-                else:
-                    print(f"Trust engine error ({response.status_code}): {response.text}")
-                    return cls._build_local_trust(autopsy, ethics)
-            except Exception as e:
-                print(f"Failed to evaluate trust: {str(e)}")
-                return cls._build_local_trust(autopsy, ethics)
-
-    @staticmethod
-    def _build_local_trust(autopsy: Dict[str, Any], ethics: Dict[str, Any]) -> Dict[str, Any]:
-        score = 80
-        confidence = "high"
-
-        if autopsy.get("bias_detected") in {"implicit", "explicit"}:
-            score -= 15
+        if score >= 80:
+            confidence = "high"
+        elif score >= 55:
             confidence = "medium"
-
-        if ethics.get("bias_detected") is True:
-            score -= 20
+        else:
             confidence = "low"
-
-        if not autopsy or not ethics:
-            score -= 10
-            confidence = "medium"
-
-        score = max(0, min(100, score))
 
         return {
             "trust_score": score,
             "confidence": confidence,
-            "justification": "Computed from the locally available bias and reasoning signals.",
+            "justification": "Computed from deterministic local trust rules.",
         }
 
 trust_service = TrustService()

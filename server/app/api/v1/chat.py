@@ -4,8 +4,6 @@ from app.core.config import settings
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_service import chat_service
 from app.services.llama_service import LlamaService
-from app.services.ethics_service import EthicsService
-
 from app.services.autopsy_service import AutopsyService
 from app.services.ethics_service import EthicsService
 from app.services.audit_service import AuditService

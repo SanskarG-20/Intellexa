@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 class ChatRequest(BaseModel):
     """
@@ -12,13 +12,21 @@ class ChatResponse(BaseModel):
     """
     Schema for the chatbot's response.
     """
-    response: str = Field(..., description="The AI-generated response.")
-    ethical_perspectives: Optional[dict] = Field(None, description="Ethical analysis of the response.")
-    audit_results: Optional[dict] = Field(None, description="AI ethics audit evaluation.")
     perspective_autopsy: Optional[dict] = Field(None, description="Detailed cognitive analysis of the user's query.")
-    explanation: Optional[list[str]] = Field(None, description="Step-by-step reasoning justifying the generated response.")
-    trust_evaluation: Optional[dict] = Field(None, description="Final reliability assessment and trust score of the AI output.")
-    neutral_reframe: Optional[dict] = Field(None, description="Bias-free neutral reformulations of the user's original query.")
+    answer: Optional[dict] = Field(None, description="Multi-perspective answer object.")
+    explanation: Optional[List[str]] = Field(None, description="Explanation bullets for how the answer was built.")
+    ethical_check: Optional[dict] = Field(None, description="Ethical safety check output.")
+    trust_score: Optional[int] = Field(None, description="Deterministic trust score from 0 to 100.")
+    confidence: Optional[str] = Field(None, description="Confidence label: low, medium, or high.")
+
+    # Additional compatibility fields used by other server variants.
+    trust_evaluation: Optional[dict] = Field(None, description="Compatibility trust object.")
+    neutral_reframe: Optional[dict] = Field(None, description="Compatibility neutral reframe payload.")
+
+    # Legacy compatibility fields kept to avoid breaking existing clients.
+    response: str = Field(..., description="Primary AI-generated response text.")
+    ethical_perspectives: Optional[dict] = Field(None, description="Legacy field retained for compatibility.")
+    audit_results: Optional[dict] = Field(None, description="Legacy field retained for compatibility.")
 
 class ConversationEntry(BaseModel):
     """

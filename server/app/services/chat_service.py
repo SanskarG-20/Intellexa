@@ -1,108 +1,141 @@
-import asyncio
-import datetime
 from app.services.llama_service import llama_service
 from app.services.autopsy_service import autopsy_service
 from app.services.context_service import context_service
 from app.services.ethics_service import ethics_service
-from app.services.audit_service import audit_service
-from app.services.explain_service import explain_service
+from app.services.explanation_service import explanation_service
+from app.services.perspective_service import perspective_service
 from app.services.trust_service import trust_service
-from app.services.rag_service import rag_service
-from app.services.reframe_service import reframe_service
 from app.db.supabase import supabase
-from app.core.config import settings
+
 
 
 class ChatService:
     """
-    Business logic layer orchestrating:
-    Cognitive Analysis → Smart RAG → LLM Generation (with live data)
-    → Ethical Auditing → Trust Evaluation
-    Uses an Asynchronous Parallel Pipeline for minimal latency.
+    Business logic layer orchestrating the full response pipeline:
+    1) autopsy, 2) context, 3) main answer, 4) multi-perspective answer,
+    5) ethical check, 6) explanation generation, 7) trust score.
     """
+
+    @classmethod
+    def _build_main_system_prompt(cls, context: str) -> str:
+        system_prompt = (
+            "You are Intellexa Core, a sophisticated AI assistant designed "
+            "to provide ethical, context-aware, and helpful responses.\n\n"
+        )
+
+        if context:
+            system_prompt += f"Here is the recent conversation history for context:\n{context}\n"
+
+        return system_prompt
+
+    @classmethod
+    def _estimate_context_relevance(cls, message: str, context: str) -> float:
+        query_terms = [
+            token.lower()
+            for token in str(message or "").replace("\n", " ").split()
+            if len(token.strip(".,!?;:\"'()[]{}")) >= 4
+        ]
+        context_lower = str(context or "").lower()
+
+        if not context_lower.strip():
+            return 0.0
+
+        if not query_terms:
+            return 1.0
+
+        normalized_terms = []
+        for term in query_terms:
+            cleaned = term.strip(".,!?;:\"'()[]{}")
+            if cleaned:
+                normalized_terms.append(cleaned)
+
+        if not normalized_terms:
+            return 1.0
+
+        unique_terms = set(normalized_terms)
+        matches = sum(1 for term in unique_terms if term in context_lower)
+        return max(0.0, min(1.0, matches / len(unique_terms)))
+
+    @classmethod
+    def _derive_confidence(cls, trust_score: int) -> str:
+        if trust_score >= 80:
+            return "high"
+        if trust_score >= 55:
+            return "medium"
+        return "low"
 
     @staticmethod
     async def process_chat(user_id: str, message: str) -> dict:
         """
-        Main workflow optimized for minimal latency using parallel execution.
+        Main workflow for processing a chat message.
         """
-        # ─── PHASE 1: Parallel Intake ────────────────────────────────────────
-        # Cognitive Analysis + History Retrieval + Neutral Reframe all run at once.
-        autopsy_task = autopsy_service.perform_autopsy(message)
-        context_task = context_service.get_user_context(user_id, limit=5)
-        reframe_task = reframe_service.reframe_query(message)
+        # 1. Perspective Autopsy (Gemini)
+        autopsy_res = await autopsy_service.perform_autopsy(message)
 
-        autopsy_res, context, reframe_res = await asyncio.gather(
-            autopsy_task, context_task, reframe_task
+        # 2. Context retrieval
+        context = await context_service.get_user_context(user_id, limit=5)
+
+        # 3. Main answer (LLaMA)
+        system_prompt = ChatService._build_main_system_prompt(context)
+        main_answer = await llama_service.get_ai_response(message, system_prompt=system_prompt)
+
+        # 4. Multi-perspective generation
+        answer = await perspective_service.generate_perspectives(
+            user_query=message,
+            context=context,
+            base_answer=main_answer,
         )
 
-        # ─── PHASE 2: Conditional Smart RAG ─────────────────────────────────
-        # The Perspective Autopsy semantically decides if a web search is needed.
-        # No keywords — purely intent-based routing.
-        rag_context = ""
-        if autopsy_res.get("needs_search"):
-            print(f"[ChatService] RAG triggered — fetching live data for: '{message[:40]}'")
-            web_data = await rag_service.search_web(message)
-            if web_data:
-                rag_context = rag_service.construct_rag_context(web_data)
-                print(f"[ChatService] RAG context injected: {len(web_data)} source(s) found.")
-            else:
-                print("[ChatService] RAG fetch returned no results. Answering from model knowledge.")
+        # 5. Ethical check
+        ethical_check = await ethics_service.get_ethical_perspectives(main_answer, message)
 
-        # ─── PHASE 3: Context-Aware Generation ───────────────────────────────
-        # Build the full system prompt with: current datetime + history + live data.
-        now = datetime.datetime.now().strftime("%A, %d %B %Y, %I:%M %p IST")
-        system_prompt = (
-            "You are Intellexa Core, an intelligent, ethical, and context-aware AI assistant.\n"
-            f"Current date and time: {now}\n"
-            "Your training knowledge cutoff is December 2023.\n"
-            "If the user asks about events after December 2023, "
-            "use the LIVE WEB DATA section below (if provided) to answer accurately.\n"
-            "If no live data is provided and the question requires it, "
-            "clearly state your knowledge cutoff and suggest the user verify online.\n\n"
+        # 6. Explanation generation
+        explanation = await explanation_service.generate_explanation(
+            user_query=message,
+            perspective_answer=answer,
+            ethical_check=ethical_check,
+            perspective_autopsy=autopsy_res,
+            context=context,
         )
 
-        if context:
-            system_prompt += f"### CONVERSATION HISTORY (last 5 turns):\n{context}\n\n"
-
-        if rag_context:
-            system_prompt += rag_context  # Already formatted with timestamp by rag_service
-
-        # Call the primary LLM (Llama 3.1) with the enriched prompt
-        ai_response = await llama_service.get_ai_response(message, system_prompt=system_prompt)
-
-        # ─── PHASE 4: Parallel Intelligence ─────────────────────────────────
-        # Ethics, Bias Audit, and Explanation run simultaneously.
-        ethics_task = ethics_service.get_ethical_perspectives(ai_response)
-        audit_task = audit_service.audit_response(ai_response)
-        explain_task = explain_service.explain_answer(message, ai_response)
-
-        ethical_p, audit_res, reasoning_steps = await asyncio.gather(
-            ethics_task, audit_task, explain_task
+        # 7. Trust score calculation
+        context_relevance = ChatService._estimate_context_relevance(message, context)
+        trust_payload = trust_service.calculate_trust_score(
+            context_relevance=context_relevance,
+            bias_detected=bool(ethical_check.get("bias_detected", False)),
+            response_text=main_answer,
+            explanation=explanation,
         )
+        trust_score = int(trust_payload.get("trust_score", 0))
+        confidence = ChatService._derive_confidence(trust_score)
 
-        # ─── PHASE 5: Final Synthesis ─────────────────────────────────────────
-        trust_eval = await trust_service.evaluate_trust(autopsy_res, audit_res)
-
-        # Persist conversation to Supabase
+        # Persist only the main answer for conversation history continuity.
         if supabase:
             try:
                 supabase.table("conversations").insert({
                     "user_id": user_id,
                     "message": message,
-                    "response": ai_response
+                    "response": main_answer
                 }).execute()
             except Exception as e:
-                print(f"[ChatService] DB save failed: {str(e)}")
+                print(f"Failed to save conversation: {str(e)}")
 
+        # New contract fields + legacy compatibility fields.
         return {
-            "response": ai_response,
-            "ethical_perspectives": ethical_p,
-            "audit_results": audit_res,
             "perspective_autopsy": autopsy_res,
-            "explanation": reasoning_steps,
-            "trust_evaluation": trust_eval,
-            "neutral_reframe": reframe_res,
+            "answer": answer,
+            "explanation": explanation,
+            "ethical_check": ethical_check,
+            "trust_score": trust_score,
+            "confidence": confidence,
+            "trust_evaluation": {
+                "trust_score": trust_score,
+                "confidence": confidence,
+            },
+            "neutral_reframe": None,
+            "response": main_answer,
+            "ethical_perspectives": answer,
+            "audit_results": ethical_check,
         }
 
 
