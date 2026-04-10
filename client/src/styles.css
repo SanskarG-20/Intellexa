@@ -1689,6 +1689,13 @@ button {
   padding: 12px;
 }
 
+.chat-sidebar-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .chat-sidebar-kicker {
   margin: 0 0 6px;
   font-family: var(--font-mono);
@@ -1703,6 +1710,32 @@ button {
   font-family: var(--font-mono);
   font-size: 15px;
   color: var(--text);
+}
+
+.chat-sidebar-new-button {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid rgba(77, 255, 210, 0.5);
+  border-radius: 999px;
+  color: var(--accent);
+  background: rgba(77, 255, 210, 0.08);
+  padding: 7px 10px;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.chat-sidebar-new-button:hover:enabled {
+  border-color: rgba(77, 255, 210, 0.8);
+  background: rgba(77, 255, 210, 0.16);
+}
+
+.chat-sidebar-new-button:disabled {
+  border-color: var(--border);
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: not-allowed;
 }
 
 .chat-sidebar-list {
@@ -2614,6 +2647,16 @@ button {
 
   .chat-sidebar-header {
     padding: 10px;
+  }
+
+  .chat-sidebar-head-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .chat-sidebar-new-button {
+    width: 100%;
+    text-align: center;
   }
 
   .chat-sidebar-list {

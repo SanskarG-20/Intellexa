@@ -575,6 +575,18 @@ function Dashboard() {
     }
   }, [stopTypingAnimation]);
 
+  const handleStartNewChat = useCallback(() => {
+    stopTypingAnimation();
+    autoScrollEnabledRef.current = true;
+    typedMessageIdsRef.current = new Set();
+
+    setActiveChatId(null);
+    setErrorMessage("");
+    setHistoryErrorMessage("");
+    setInputValue("");
+    setMessages([createChatMessage("assistant", WELCOME_MESSAGE)]);
+  }, [stopTypingAnimation]);
+
   const handleSubmit = async (event) => {
     event.preventDefault();
 
@@ -669,6 +681,8 @@ function Dashboard() {
             isLoading={isHistoryLoading}
             errorMessage={historyErrorMessage}
             onSelectChat={handleSelectHistoryItem}
+            onNewChat={handleStartNewChat}
+            isNewChatDisabled={isLoading}
           />
 
           <div className="dashboard-chat-main">

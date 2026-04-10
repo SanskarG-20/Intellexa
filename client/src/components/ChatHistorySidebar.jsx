@@ -35,12 +35,26 @@ function ChatHistorySidebar({
   isLoading,
   errorMessage,
   onSelectChat,
+  onNewChat,
+  isNewChatDisabled,
 }) {
   return (
     <aside className="chat-sidebar" aria-label="Chat history sidebar">
       <header className="chat-sidebar-header">
-        <p className="chat-sidebar-kicker">History</p>
-        <h2 className="chat-sidebar-title">Recent Chats</h2>
+        <div className="chat-sidebar-head-row">
+          <div>
+            <p className="chat-sidebar-kicker">History</p>
+            <h2 className="chat-sidebar-title">Recent Chats</h2>
+          </div>
+          <button
+            type="button"
+            className="chat-sidebar-new-button"
+            onClick={onNewChat}
+            disabled={isNewChatDisabled}
+          >
+            + New Chat
+          </button>
+        </div>
       </header>
 
       <div className="chat-sidebar-list" role="list">
