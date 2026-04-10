@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import "./styles.css";
 
 /* ── Headline structure: lines of words, with accent flags ── */
@@ -28,6 +28,80 @@ const PIPELINE_STEPS = [
   { num: "06", title: "Ethics Gate", desc: "Bias detected, flagged, corrected." },
   { num: "07", title: "Explain", desc: "Why, how, and how confident." },
 ];
+
+/* ── Metrics data ────────────────────────────────────────── */
+const METRICS = [
+  { target: 7, prefix: "", suffix: "×", label: "Pipeline Layers", sub: "Every query passes 7 transparent stages" },
+  { target: 2, prefix: "<", suffix: "s", label: "Avg Response Time", sub: "Groq-accelerated generation" },
+  { target: 3, prefix: "", suffix: " POV", label: "Ethical Viewpoints", sub: "Utilitarian · Rights · Care Ethics" },
+];
+
+/* ── Count-up hook ───────────────────────────────────────── */
+function useCountUp(target, duration = 2000, start = false) {
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    if (!start) return;
+    let startTime = null;
+    let raf;
+
+    const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+
+    const step = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      setValue(Math.round(easeOut(progress) * target));
+      if (progress < 1) {
+        raf = requestAnimationFrame(step);
+      }
+    };
+
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [start, target, duration]);
+
+  return value;
+}
+
+/* ── Single metric cell component ────────────────────────── */
+function MetricCell({ metric, delay }) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.unobserve(el);
+        }
+      },
+      { threshold: 0.3 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const count = useCountUp(metric.target, 2000, visible);
+
+  return (
+    <div
+      ref={ref}
+      className={`metric-cell ${visible ? "is-visible" : ""}`}
+      style={{ transitionDelay: `${delay}s` }}
+    >
+      <div className="metric-number">
+        {metric.prefix && <span className="metric-suffix">{metric.prefix}</span>}
+        <span>{count}</span>
+        <span className="metric-suffix">{metric.suffix}</span>
+      </div>
+      <div className="metric-label">{metric.label}</div>
+      <div className="metric-subdesc">{metric.sub}</div>
+    </div>
+  );
+}
 
 function App() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -67,6 +141,48 @@ function App() {
     );
 
     steps.forEach((step) => observer.observe(step));
+    return () => observer.disconnect();
+  }, []);
+
+  /* IntersectionObserver for bento feature cards */
+  useEffect(() => {
+    const cards = document.querySelectorAll(".bento-card");
+    if (!cards.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    cards.forEach((card) => observer.observe(card));
+    return () => observer.disconnect();
+  }, []);
+
+  /* IntersectionObserver for generic fade-up elements */
+  useEffect(() => {
+    const els = document.querySelectorAll(".fade-up");
+    if (!els.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.15 }
+    );
+
+    els.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, []);
 
@@ -240,15 +356,198 @@ function App() {
             </div>
           </section>
 
-          {/* Remaining sections — future prompts */}
-          <section id="how-it-works" />
-          <section id="trust-score" />
-          <section id="demo" />
+          {/* ── FEATURES ─────────────────────────── */}
+          <section className="features-section" id="features">
+            <span className="features-label">// 02 — CORE FEATURES</span>
+            <h2 className="features-heading">Built Different.</h2>
+            <p className="features-subheading">
+              Not another black-box AI.
+            </p>
+
+            <div className="bento-grid">
+              {/* Card 1 — Perspective Autopsy (2 cols) */}
+              <article
+                className="bento-card hud-card card-autopsy card-span-2-col"
+                style={{ transitionDelay: "0s" }}
+              >
+                <span className="card-chip">| RUNS BEFORE EVERY ANSWER |</span>
+                <h3 className="card-title">Perspective Autopsy</h3>
+                <p className="card-desc">
+                  Before generating any answer, Gemini surgically dissects your
+                  question — surfacing hidden assumptions, embedded biases, and
+                  missing angles you didn't know to ask.
+                </p>
+                <div className="tag-row">
+                  <span className="tag-pill">Bias Detection</span>
+                  <span className="tag-pill">Assumption Mapping</span>
+                  <span className="tag-pill">Blind Spot Analysis</span>
+                </div>
+              </article>
+
+              {/* Card 2 — Trust Score (2 rows) */}
+              <article
+                className="bento-card hud-card card-trust card-span-2-row"
+                style={{ transitionDelay: "0.07s" }}
+              >
+                <span className="trust-big-number">87</span>
+                <span className="trust-label">TRUST SCORE</span>
+                <div className="trust-divider" />
+                <div className="trust-metrics">
+                  <span className="trust-metric metric-green">↑ Ethical Risk: LOW</span>
+                  <span className="trust-metric metric-accent">↑ Confidence: HIGH</span>
+                  <span className="trust-metric metric-violet">↑ Bias Clean: TRUE</span>
+                </div>
+              </article>
+
+              {/* Card 3 — Multi-Perspective (1 col) */}
+              <article
+                className="bento-card hud-card"
+                style={{ transitionDelay: "0.14s" }}
+              >
+                <h3 className="card-small-title">Multi-Perspective</h3>
+                <div className="perspective-row" style={{ borderColor: '#4ADE80' }}>
+                  <div className="perspective-name">Utilitarian</div>
+                  <div className="perspective-desc">Greatest good for the most people</div>
+                </div>
+                <div className="perspective-row" style={{ borderColor: 'var(--violet)' }}>
+                  <div className="perspective-name">Rights-Based</div>
+                  <div className="perspective-desc">What rights does this decision affect?</div>
+                </div>
+                <div className="perspective-row" style={{ borderColor: 'var(--accent)' }}>
+                  <div className="perspective-name">Care Ethics</div>
+                  <div className="perspective-desc">Who is made vulnerable here?</div>
+                </div>
+              </article>
+
+              {/* Card 4 — Explainability Engine (1 col) */}
+              <article
+                className="bento-card hud-card"
+                style={{ transitionDelay: "0.21s" }}
+              >
+                <h3 className="card-small-title">Explainability Engine</h3>
+                <p className="card-small-desc">
+                  Every response ships with its reasoning — what context was
+                  used, how it was weighted, and a confidence level.
+                </p>
+                <div className="toggle-row">
+                  <button className="toggle-switch toggle-active" type="button">
+                    [ BEGINNER ]
+                  </button>
+                  <button className="toggle-switch toggle-inactive" type="button">
+                    [ EXPERT ]
+                  </button>
+                </div>
+              </article>
+
+              {/* Card 5 — Ethical Gate (1 col) */}
+              <article
+                className="bento-card hud-card"
+                style={{ transitionDelay: "0.28s" }}
+              >
+                <h3 className="card-small-title">Ethical Gate</h3>
+                <div className="gate-status">
+                  <span className="status-dot">●</span>
+                  <span className="gate-status-text">GATE STATUS: ACTIVE</span>
+                </div>
+                <p className="card-small-desc">
+                  Sensitive content, political bias, and factual overreach are
+                  caught before they reach you. Fairness is enforced, not
+                  optional.
+                </p>
+              </article>
+
+              {/* Card 6 — Context Memory (2 cols) */}
+              <article
+                className="bento-card hud-card card-context card-span-2-col"
+                style={{ transitionDelay: "0.35s" }}
+              >
+                <h3 className="card-title">Context Memory</h3>
+                <p className="card-desc">
+                  Intellexa builds a user-specific memory from your query
+                  history. Responses become more relevant, more personalized —
+                  and more accurate — over time.
+                </p>
+                <div className="timeline-row">
+                  <span className="timeline-chip">query_001</span>
+                  <span className="timeline-chip">query_002</span>
+                  <span className="timeline-chip">query_003</span>
+                  <span className="timeline-chip timeline-chip-active">→ current</span>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          {/* ── SYSTEM METRICS ───────────────────── */}
+          <section className="metrics-section" id="trust-score">
+            <span className="metrics-label">// 03 — SYSTEM METRICS</span>
+            <div className="metrics-row">
+              {METRICS.map((m, i) => (
+                <MetricCell key={m.label} metric={m} delay={i * 0.1} />
+              ))}
+            </div>
+          </section>
+
+          {/* ── TERMINAL CTA ─────────────────────── */}
+          <section className="cta-section fade-up" id="demo">
+            <div className="terminal-frame">
+              {/* 4-corner brackets */}
+              <div className="terminal-bracket bracket-tl" />
+              <div className="terminal-bracket bracket-tr" />
+              <div className="terminal-bracket bracket-bl" />
+              <div className="terminal-bracket bracket-br" />
+
+              {/* Titlebar */}
+              <div className="terminal-titlebar">
+                <span className="terminal-dot dot-red" />
+                <span className="terminal-dot dot-yellow" />
+                <span className="terminal-dot dot-green" />
+                <span className="terminal-title-text">
+                  intellexa — terminal v1.0
+                </span>
+              </div>
+
+              {/* Prompt */}
+              <div className="cta-prompt">
+                {"> system.initialize(user)"}
+              </div>
+
+              {/* Headline */}
+              <h2 className="cta-headline">
+                Ready to Think
+                <br />
+                <span className="cta-accent-line">Without Limits?</span>
+              </h2>
+
+              {/* Subtext */}
+              <p className="cta-subtext">
+                Intellexa doesn't just answer — it reasons, reflects, and earns
+                trust. One query at a time.
+              </p>
+
+              {/* Button */}
+              <button className="cta-button" type="button">
+                ▸ Initialize Session
+              </button>
+
+              {/* Note */}
+              <p className="cta-note">
+                // No account required · Built for Hackathon PS-202 · Team Nexus
+              </p>
+            </div>
+          </section>
         </main>
+
+        {/* ── FOOTER ───────────────────────────── */}
+        <footer className="page-footer">
+          <span className="footer-logo">[ INTELLEXA ]</span>
+          <span className="footer-tech">
+            Groq · Gemini · Clerk · Supabase · React
+          </span>
+          <span className="footer-copy">© 2025 Team Nexus</span>
+        </footer>
       </div>
     </div>
   );
 }
 
 export default App;
-
