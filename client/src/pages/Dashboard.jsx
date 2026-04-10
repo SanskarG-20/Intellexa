@@ -78,8 +78,30 @@ function extractExplanationItems(data) {
   return [];
 }
 
+function extractAutopsyPayload(data) {
+  if (!isPlainObject(data?.perspective_autopsy)) {
+    return null;
+  }
+
+  const source = data.perspective_autopsy;
+  const assumptions = Array.isArray(source.assumptions)
+    ? source.assumptions.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+  const missingAngles = Array.isArray(source.missing_angles)
+    ? source.missing_angles.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+  const biasDetected = String(source.bias_detected ?? "none").trim() || "none";
+
+  return {
+    assumptions,
+    biasDetected,
+    missingAngles,
+  };
+}
+
 function buildStructuredPayload(data) {
   const explanationItems = extractExplanationItems(data);
+  const autopsy = extractAutopsyPayload(data);
   const ethicalCheck = isPlainObject(data?.ethical_check)
     ? data.ethical_check
     : isPlainObject(data?.audit_results)
@@ -89,6 +111,7 @@ function buildStructuredPayload(data) {
   const confidence = data?.confidence ?? null;
 
   return {
+    autopsy,
     answer: extractMainAnswer(data),
     explanationItems,
     ethicalCheck,
@@ -207,6 +230,7 @@ function Dashboard() {
           {messages.map((message) => {
             const isAssistant = message.role === "assistant";
             const structured = message.structured;
+            const hasAutopsy = Boolean(structured?.autopsy);
             const hasExplanation = Boolean(structured?.explanationItems?.length);
             const hasEthicalCheck = Boolean(
               structured?.ethicalCheck && Object.keys(structured.ethicalCheck).length
@@ -214,7 +238,8 @@ function Dashboard() {
             const hasTrustBlock =
               (structured?.trustScore !== null && structured?.trustScore !== undefined) ||
               (typeof structured?.confidence === "string" && structured.confidence.trim());
-            const shouldRenderStructured = isAssistant && (hasExplanation || hasEthicalCheck || hasTrustBlock);
+            const shouldRenderStructured =
+              isAssistant && (hasAutopsy || hasExplanation || hasEthicalCheck || hasTrustBlock);
 
             return (
               <article
@@ -227,6 +252,44 @@ function Dashboard() {
 
                 {shouldRenderStructured ? (
                   <div className="chat-structured">
+                    {hasAutopsy ? (
+                      <section className="chat-structured-panel chat-autopsy-panel">
+                        <h3 className="chat-panel-title chat-autopsy-title">Perspective Autopsy</h3>
+                        <p className="chat-autopsy-kicker">Before answer generation</p>
+
+                        <div className="chat-autopsy-group">
+                          <p className="chat-autopsy-label">Assumptions</p>
+                          {structured.autopsy.assumptions.length ? (
+                            <ul className="chat-panel-list">
+                              {structured.autopsy.assumptions.map((item, index) => (
+                                <li key={`${message.id}-autopsy-assumption-${index}`}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="chat-autopsy-empty">No assumptions detected.</p>
+                          )}
+                        </div>
+
+                        <div className="chat-autopsy-group">
+                          <p className="chat-autopsy-label">Bias Detected</p>
+                          <p className="chat-autopsy-bias">{structured.autopsy.biasDetected || "none"}</p>
+                        </div>
+
+                        <div className="chat-autopsy-group">
+                          <p className="chat-autopsy-label">Missing Angles</p>
+                          {structured.autopsy.missingAngles.length ? (
+                            <ul className="chat-panel-list">
+                              {structured.autopsy.missingAngles.map((item, index) => (
+                                <li key={`${message.id}-autopsy-angle-${index}`}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="chat-autopsy-empty">No missing angles identified.</p>
+                          )}
+                        </div>
+                      </section>
+                    ) : null}
+
                     <section className="chat-structured-panel">
                       <h3 className="chat-panel-title">Answer</h3>
                       <p>{structured.answer || message.content}</p>
