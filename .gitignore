@@ -17,3 +17,11 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+client/.env
+client/.env.local
+client/.env.*.local
