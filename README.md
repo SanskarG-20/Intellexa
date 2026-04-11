@@ -23,6 +23,9 @@ Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluate
 - Full chat interface built with React + Vite.
 - Agentic RAG flow where LLaMA can decide when web search is needed.
 - Integrated web search for real-time information retrieval.
+- Query Enhancement Layer that reformulates weak search prompts into stronger intent-aware queries.
+- Multi-attempt retrieval path for difficult prompts (base query, enhanced query, broad query).
+- Domain-aware ranking so sports, politics, and tech queries prioritize relevant sources.
 - Source and citation display in responses.
 
 ### Cognitive and Ethical Reasoning
@@ -49,6 +52,7 @@ Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluate
 - Voice Conversation Mode with continuous listening and natural 5-second silence detection.
 - Voice-mode realtime guardrail: for realtime queries, web search is forced and answers are source-grounded.
 - Dual-response behavior in voice mode: short spoken reply, full answer plus sources/explanation stored in history.
+- Clean voice output policy: voice speaks concise final answers only (no URLs, source lists, or system/debug text).
 
 ## System Architecture
 Intellexa uses a staged architecture that combines agentic decisioning with retrieval-aware reasoning.
@@ -93,6 +97,15 @@ flowchart LR
 4. Assistant speaks a concise 1 to 2 sentence reply for low-latency voice UX.
 5. Full detailed response (including explanation and sources) is still persisted in chat history.
 6. If the user speaks while Intellexa is searching or speaking, the current process is canceled and listening resumes.
+
+### Voice + Real-Time Intelligence
+- Backend response contract supports:
+  - `full_answer`: detailed response for chat UI and history
+  - `short_answer`: concise conversational response for voice playback
+  - `sources`: query-specific citations used for grounding
+- Voice mode uses `short_answer` only, while chat mode displays `full_answer` with sources.
+- Search fallback messaging is user-friendly and avoids noisy system phrasing.
+- Query-specific source isolation prevents source leakage between unrelated prompts.
 
 ## Tech Stack
 - Frontend: React, Vite, Clerk, Axios
@@ -178,6 +191,7 @@ MOCK_USER_ID=demo_user
 - Ensure Railway route `POST /api/v1/chat` is reachable.
 - Add your Vercel domain in Railway `CORS_ALLOW_ORIGINS`.
 - Redeploy both services after env changes.
+- Frontend transport now retries across safe API base candidates (configured env URL, same-origin `/api`, and known production fallback) when network routing fails.
 
 ## Folder Structure
 ```text

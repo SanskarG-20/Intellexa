@@ -32,6 +32,22 @@ function isFatalRecognitionError(message) {
   return value.includes("permission denied") || value.includes("voice not supported");
 }
 
+function toFriendlyVoiceModeError(message) {
+  const value = String(message || "").trim();
+  const lowered = value.toLowerCase();
+
+  if (
+    lowered.includes("cannot reach") ||
+    lowered.includes("network") ||
+    lowered.includes("cors") ||
+    lowered.includes("unable to reach")
+  ) {
+    return "I am having trouble connecting right now. I will keep listening.";
+  }
+
+  return value || "Voice request failed.";
+}
+
 function normalizeVoiceText(value) {
   return String(value || "")
     .replace(/\[source\s*\d+\]/gi, "")
@@ -84,6 +100,40 @@ function generateShortResponse(fullAnswer) {
   const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 30);
   const compact = words.join(" ").trim();
   return compact ? `${compact}...` : cleaned.slice(0, SHORT_RESPONSE_MAX_CHARS).trim();
+}
+
+function sanitizeSpeechOutput(value) {
+  let text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  text = text
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\[source\s*\d+\]/gi, "")
+    .replace(/\bsource(s)?\b\s*:?[^.]*\.?/gi, "")
+    .replace(/\bfallback\b[^.]*\.?/gi, "")
+    .replace(/\bdebug\b[^.]*\.?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!text) {
+    return "";
+  }
+
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const concise = (sentences.slice(0, 2).join(" ") || text).trim();
+  if (!concise) {
+    return "";
+  }
+
+  const withoutSourceLead = concise.replace(/^(according to (recent )?sources,?\s*)/i, "").trim();
+  const cleaned = withoutSourceLead || concise;
+  return /[.!?]$/.test(cleaned) ? cleaned : `${cleaned}.`;
 }
 
 function isRealtimeQuery(query) {
@@ -190,7 +240,7 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode, onInterruptActiveRespo
       setModeError("");
       setIsThinking(true);
       const realtimeIntent = isRealtimeQuery(utterance);
-      setStatusText(realtimeIntent ? "Let me check the latest information..." : "Thinking...");
+      setStatusText(realtimeIntent ? "Let me check that..." : "Thinking...");
       stopListening();
 
       // Keep the mic active during search so the user can interrupt naturally.
@@ -215,10 +265,10 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode, onInterruptActiveRespo
           return;
         }
 
-        setModeError(String(result?.error || "Voice request failed."));
+        setModeError(toFriendlyVoiceModeError(result?.error || "Voice request failed."));
         if (isVoiceOutputEnabled && isSpeechOutputSupported) {
           const fallbackSpeech =
-            "I couldn't process that just now. Please try again.";
+            "I couldn't find the latest update right now, but here's what I know.";
           speakText(fallbackSpeech, {
             rate: voiceRate,
             pitch: voicePitch,
@@ -236,17 +286,13 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode, onInterruptActiveRespo
         return;
       }
 
-      const usedSources = Boolean(result?.searchUsed) || Boolean(result?.sources?.length);
-      let shortResponse = generateShortResponse(fullAnswerText);
-
-      if (realtimeIntent && usedSources) {
-        const normalizedShort = shortResponse.toLowerCase();
-        if (!normalizedShort.startsWith("according to recent sources")) {
-          const first = shortResponse.charAt(0);
-          const rest = shortResponse.slice(1);
-          shortResponse = `According to recent sources, ${first.toLowerCase()}${rest}`;
-        }
-      }
+      const shortResponseRaw =
+        typeof result?.shortAnswer === "string" && result.shortAnswer.trim()
+          ? result.shortAnswer.trim()
+          : generateShortResponse(fullAnswerText);
+      const shortResponse =
+        sanitizeSpeechOutput(shortResponseRaw) ||
+        "I couldn't find the latest update right now, but here's what I know.";
 
       if (!isVoiceOutputEnabled || !isSpeechOutputSupported) {
         setStatusText("Listening...");

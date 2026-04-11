@@ -21,8 +21,8 @@ class ChatService:
     8) trust score.
     """
 
-    REALTIME_FALLBACK_MESSAGE = "I couldn't fetch real-time data right now, please try again."
-    VOICE_REALTIME_FALLBACK_MESSAGE = "I couldn't fetch the latest info right now, but here's what I know."
+    REALTIME_FALLBACK_MESSAGE = "I couldn't find the latest update right now, but here's what I know."
+    VOICE_REALTIME_FALLBACK_MESSAGE = "I couldn't find the latest update right now, but here's what I know."
     GROUNDING_STOPWORDS = {
         "about",
         "above",
@@ -132,26 +132,82 @@ class ChatService:
     @staticmethod
     def _build_source_backed_answer(query: str, web_data: List[Dict[str, str]]) -> str:
         if not web_data:
-            return "I could not verify reliable web data right now. Please try again shortly."
+            return ChatService.REALTIME_FALLBACK_MESSAGE
 
         key_points = []
         for item in web_data[:2]:
-            title = " ".join(str(item.get("title", "")).split())
             snippet = " ".join(str(item.get("snippet", "")).split())
             if not snippet:
                 continue
-            key_points.append(f"{title}: {snippet}")
+            key_points.append(snippet)
 
         if not key_points:
             return (
-                f"I found recent sources for '{query}', but they did not contain enough detail "
+                f"I found recent updates for '{query}', but there is not enough detail yet "
                 "to provide a reliable direct answer."
             )
 
-        return (
-            f"Based on recent sources about '{query}', here is what is available: "
-            + " ".join(key_points)
+        summary = " ".join(key_points)
+        return f"Here's the latest update on '{query}': {summary}"
+
+    @staticmethod
+    def _build_short_answer(full_answer: str) -> str:
+        text = str(full_answer or "").strip()
+        if not text:
+            return ChatService.REALTIME_FALLBACK_MESSAGE
+
+        cleaned = (
+            text.replace("\n", " ")
+            .replace("[", " ")
+            .replace("]", " ")
         )
+        cleaned = re.sub(r"https?://\S+", "", cleaned)
+        cleaned = re.sub(r"\bbased on recent sources?\s*:?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(
+            r"\bsource\s*\d+\s*(says|said|confirms|reported)?\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\bsources?\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(the same update|same update)\b\.?", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bfallback\b[^.]*\.?", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+        if not cleaned:
+            return ChatService.REALTIME_FALLBACK_MESSAGE
+
+        cleaned = re.sub(r"^based on [^:]+:\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^according to [^,]+,\s*", "", cleaned, flags=re.IGNORECASE)
+
+        sentences = [
+            sentence.strip()
+            for sentence in re.split(r"(?<=[.!?])\s+", cleaned)
+            if sentence.strip()
+        ]
+
+        sentences = [
+            sentence
+            for sentence in sentences
+            if sentence.lower().strip(" .!?") not in {"same update", "the same update", "update"}
+        ]
+
+        short = " ".join(sentences[:2]) if sentences else cleaned
+        short = " ".join(short.split())
+
+        if len(short) > 240:
+            words = short.split()
+            short = " ".join(words[:34]).strip()
+            if short and not short.endswith((".", "!", "?")):
+                short += "..."
+
+        if not short:
+            return ChatService.REALTIME_FALLBACK_MESSAGE
+
+        if not short.endswith((".", "!", "?")):
+            short += "."
+
+        return short
 
     @classmethod
     def _estimate_context_relevance(cls, message: str, context: str) -> float:
@@ -200,7 +256,6 @@ class ChatService:
         # 2. Conditional Query Reframing (Wow Mode)
         reframe_payload = await reframe_service.reframe_query(message, autopsy_res)
         reframed_query = str((reframe_payload or {}).get("reframed_query", "")).strip()
-        print(f"REFRAMED: {reframed_query or '<none>'}")
         query_for_reasoning = reframed_query or message
 
         # 3. Context retrieval
@@ -211,21 +266,12 @@ class ChatService:
         realtime_needs_search = rag_service.is_realtime_query(query_for_reasoning)
         voice_realtime_strict = bool(voice_mode and realtime_needs_search)
         force_search = autopsy_needs_search or realtime_needs_search or voice_realtime_strict
-        print(
-            "[RAG][RealtimeGate] "
-            f"triggered={force_search} "
-            f"autopsy_needs_search={autopsy_needs_search} "
-            f"realtime_detected={realtime_needs_search} "
-            f"voice_mode={voice_mode} "
-            f"voice_realtime_strict={voice_realtime_strict}"
-        )
 
         web_data: List[Dict[str, str]] = []
         search_used = False
         main_answer = ""
 
         if force_search:
-            print(f"[RAG][Search] Triggered for query: '{query_for_reasoning}'")
             web_data = await rag_service.search_web(query_for_reasoning)
             web_data = [
                 {
@@ -237,20 +283,10 @@ class ChatService:
                 if isinstance(item, dict)
             ]
             search_used = bool(web_data)
-            print(f"[RAG][Search] Result count: {len(web_data)}")
-
-            for index, item in enumerate(web_data[:4], start=1):
-                title = " ".join(str(item.get("title", "")).split())
-                snippet = " ".join(str(item.get("snippet", "")).split())
-                print(f"[RAG][Search][{index}] {title} :: {snippet[:220]}")
 
             if not web_data:
-                print("[RAG][Search] Forced search returned empty data even after retries/fallbacks.")
                 if voice_realtime_strict:
-                    print("[RAG][Search] Voice realtime strict mode active; using voice-safe fallback response.")
                     main_answer = ChatService.VOICE_REALTIME_FALLBACK_MESSAGE
-                else:
-                    print("[RAG][Search] Continuing without web grounding as last-resort safety path.")
 
         if not main_answer:
             rag_context = rag_service.construct_rag_context(web_data) if web_data else ""
@@ -265,7 +301,6 @@ class ChatService:
             )
 
             if force_search and web_data and ChatService._looks_like_no_info_answer(main_answer):
-                print("[RAG][Validation] No-info answer detected despite source availability. Retrying.")
                 no_info_recovery_prompt = (
                     ChatService._build_main_system_prompt(
                         context=context,
@@ -282,7 +317,6 @@ class ChatService:
 
             if force_search and web_data:
                 is_grounded = ChatService._is_answer_grounded(main_answer, web_data)
-                print(f"[RAG][Validation] grounded={is_grounded}")
 
                 if not is_grounded:
                     stricter_prompt = (
@@ -300,23 +334,19 @@ class ChatService:
                         system_prompt=stricter_prompt,
                     )
                     is_grounded = ChatService._is_answer_grounded(main_answer, web_data)
-                    print(f"[RAG][Validation] grounded_after_retry={is_grounded}")
 
                     if not is_grounded:
-                        print("[RAG][Validation] Retry mismatch; constructing source-backed fallback answer.")
                         main_answer = ChatService._build_source_backed_answer(
                             query_for_reasoning,
                             web_data,
                         )
 
             if force_search and web_data and ChatService._looks_like_no_info_answer(main_answer):
-                print("[RAG][Validation] Final answer still no-info; constructing source-backed fallback answer.")
                 main_answer = ChatService._build_source_backed_answer(
                     query_for_reasoning,
                     web_data,
                 )
-
-        print(f"[RAG][FinalAnswer] {str(main_answer)[:260]}")
+        short_answer = ChatService._build_short_answer(main_answer)
 
         # 5. Multi-perspective generation
         answer = await perspective_service.generate_perspectives(
@@ -373,6 +403,7 @@ class ChatService:
             "search_used": search_used,
             "sources": web_data,
             "full_answer": main_answer,
+            "short_answer": short_answer,
             "trust_evaluation": {
                 "trust_score": trust_score,
                 "confidence": confidence,

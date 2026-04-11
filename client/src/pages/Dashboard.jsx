@@ -1100,6 +1100,8 @@ function Dashboard() {
       const animateResponse = options?.animateResponse ?? true;
       const clearInput = options?.clearInput ?? true;
       const voiceMode = Boolean(options?.voiceMode);
+      const suppressErrorBanner = Boolean(options?.suppressErrorBanner);
+      const suppressAssistantErrorMessage = Boolean(options?.suppressAssistantErrorMessage);
 
       if (!nextMessage || isResponseInterruptible) {
         return {
@@ -1204,6 +1206,10 @@ function Dashboard() {
           interrupted: false,
           answer: aiText,
           fullAnswer: aiText,
+          shortAnswer:
+            typeof data?.short_answer === "string" && data.short_answer.trim()
+              ? data.short_answer.trim()
+              : "",
           structuredPayload: isolatedStructuredPayload,
           searchUsed: Boolean(isolatedStructuredPayload?.searchUsed),
           sources: Array.isArray(isolatedStructuredPayload?.sources)
@@ -1233,16 +1239,23 @@ function Dashboard() {
 
         const userVisibleMessage = toFriendlyChatErrorMessage(rawMessage);
 
-        setErrorMessage(userVisibleMessage);
-        setMessages((prev) => [
-          ...prev,
-          createChatMessage(
-            "assistant",
-            `I hit an issue while processing that request: ${userVisibleMessage}`,
-            null,
-            { isError: true }
-          ),
-        ]);
+        if (suppressErrorBanner) {
+          setErrorMessage("");
+        } else {
+          setErrorMessage(userVisibleMessage);
+        }
+
+        if (!suppressAssistantErrorMessage) {
+          setMessages((prev) => [
+            ...prev,
+            createChatMessage(
+              "assistant",
+              `I hit an issue while processing that request: ${userVisibleMessage}`,
+              null,
+              { isError: true }
+            ),
+          ]);
+        }
 
         return {
           ok: false,
@@ -1387,6 +1400,8 @@ function Dashboard() {
         animateResponse: false,
         clearInput: false,
         voiceMode: true,
+        suppressErrorBanner: true,
+        suppressAssistantErrorMessage: true,
       });
     },
     [submitMessage]

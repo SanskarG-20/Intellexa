@@ -26,6 +26,7 @@ class ChatResponse(BaseModel):
     search_used: Optional[bool] = Field(None, description="Whether web search was used before answer generation.")
     sources: Optional[List[dict]] = Field(None, description="Raw web search results used for grounding.")
     full_answer: Optional[str] = Field(None, description="Compatibility field containing the full detailed answer.")
+    short_answer: Optional[str] = Field(None, description="Concise conversational answer intended for voice output.")
 
     # Additional compatibility fields used by other server variants.
     trust_evaluation: Optional[dict] = Field(None, description="Compatibility trust object.")
