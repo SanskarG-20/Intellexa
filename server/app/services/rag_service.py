@@ -22,6 +22,52 @@ class RAGService:
     Provides a free DuckDuckGo fallback so it works without any API key.
     """
 
+    REALTIME_KEYWORDS = {
+        "current",
+        "latest",
+        "today",
+        "now",
+        "president",
+        "who is",
+        "recent",
+        "breaking",
+        "live",
+        "update",
+    }
+
+    REALTIME_TOPIC_KEYWORDS = {
+        "politics",
+        "election",
+        "senate",
+        "congress",
+        "government",
+        "sports",
+        "match",
+        "score",
+        "league",
+        "news",
+        "headline",
+    }
+
+    @classmethod
+    def is_realtime_query(cls, query: str) -> bool:
+        text = " ".join(str(query or "").split()).lower()
+        if not text:
+            return False
+
+        has_realtime_keyword = any(keyword in text for keyword in cls.REALTIME_KEYWORDS)
+        has_topic_keyword = any(keyword in text for keyword in cls.REALTIME_TOPIC_KEYWORDS)
+        has_recent_year = bool(re.search(r"\b20(2[4-9]|[3-9][0-9])\b", text))
+
+        return has_realtime_keyword or has_topic_keyword or has_recent_year
+
+    @classmethod
+    def isRealtimeQuery(cls, query: str) -> bool:
+        """
+        Compatibility alias matching requested naming.
+        """
+        return cls.is_realtime_query(query)
+
     # ──────────────────────────────────────────────
     # 1. SerpAPI (paid, best quality)
     # ──────────────────────────────────────────────
@@ -154,15 +200,23 @@ class RAGService:
 
         now = datetime.datetime.now().strftime("%A, %d %B %Y, %I:%M %p IST")
         lines = [
-            f"### LIVE WEB DATA (Fetched: {now})",
-            "Use the data below to answer questions about recent events.",
-            "Synthesize the information naturally — do not cite raw URLs.",
+            "Context:",
+            "Latest verified information:",
+            f"(Fetched: {now})",
             "",
         ]
         for i, item in enumerate(web_data, start=1):
-            lines.append(f"[Source {i}] {item['title']}")
-            lines.append(f"  >> {item['snippet']}")
-            lines.append("")
+            title = " ".join(str(item.get("title", "")).split()) or "Search Result"
+            snippet = " ".join(str(item.get("snippet", "")).split())
+            lines.append(f"{i}. {title} — {snippet}")
+
+        lines.extend(
+            [
+                "",
+                "Based ONLY on the above information, answer the question.",
+                "Do NOT use prior knowledge.",
+            ]
+        )
 
         return "\n".join(lines)
 

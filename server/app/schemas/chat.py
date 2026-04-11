@@ -19,6 +19,8 @@ class ChatResponse(BaseModel):
     ethical_check: Optional[dict] = Field(None, description="Ethical safety check output.")
     trust_score: Optional[int] = Field(None, description="Deterministic trust score from 0 to 100.")
     confidence: Optional[str] = Field(None, description="Confidence label: low, medium, or high.")
+    search_used: Optional[bool] = Field(None, description="Whether web search was used before answer generation.")
+    sources: Optional[List[dict]] = Field(None, description="Raw web search results used for grounding.")
 
     # Additional compatibility fields used by other server variants.
     trust_evaluation: Optional[dict] = Field(None, description="Compatibility trust object.")
