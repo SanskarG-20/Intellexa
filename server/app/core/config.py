@@ -14,6 +14,13 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "Intellexa Core Chat"
     DEBUG: bool = True
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
+
+    # CORS (comma-separated origins). Example:
+    # CORS_ALLOW_ORIGINS=https://intellexa-lac.vercel.app,https://your-frontend.app
+    CORS_ALLOW_ORIGINS: str = ""
+    CORS_ALLOW_ORIGIN_REGEX: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
     # Gemini Settings
     GEMINI_API_KEY: str = ""
@@ -52,6 +59,46 @@ class Settings(BaseSettings):
             return False
 
         return False
+
+    @field_validator("PORT", mode="before")
+    @classmethod
+    def parse_port(cls, value):
+        if value is None:
+            return 8000
+
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            return 8000
+
+        if parsed <= 0:
+            return 8000
+
+        return parsed
+
+    def get_cors_origins(self) -> list[str]:
+        defaults = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        ]
+
+        configured = [
+            origin.strip()
+            for origin in str(self.CORS_ALLOW_ORIGINS or "").split(",")
+            if origin.strip()
+        ]
+
+        # Preserve order while removing duplicates.
+        unique = []
+        seen = set()
+        for origin in [*defaults, *configured]:
+            if origin not in seen:
+                unique.append(origin)
+                seen.add(origin)
+
+        return unique
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),

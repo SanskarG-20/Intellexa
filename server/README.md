@@ -63,3 +63,44 @@ Production-quality backend for Intellexa Core Chatbot using FastAPI, Google Gemi
 - `app/db`: Database client initialization.
 - `app/core`: Configuration and environment settings.
 - `app/schemas`: Pydantic models for data validation.
+
+## 🚆 Railway Deployment
+
+This backend is deployment-ready for Railway.
+
+### 1) Create a Railway project
+- Connect your GitHub repository.
+- Set the service root to `server` (recommended for monorepo layout).
+
+### 2) Configure environment variables in Railway
+Add these variables in the Railway service settings:
+
+```env
+APP_NAME=Intellexa Core Chat
+DEBUG=false
+HOST=0.0.0.0
+
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash
+
+HF_TOKEN=your_huggingface_token
+HF_MODEL=meta-llama/Llama-3.1-8B-Instruct
+
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_KEY=your_supabase_service_key
+
+SERPAPI_API_KEY=optional_serpapi_key
+MOCK_USER_ID=demo_user
+
+# Add your frontend origins as comma-separated values
+CORS_ALLOW_ORIGINS=https://your-frontend.vercel.app
+```
+
+Notes:
+- `PORT` is provided automatically by Railway and used by the app.
+- Keep `DEBUG=false` in production.
+
+### 3) Deploy
+- Railway will build and start the service automatically.
+- Health check endpoint: `GET /`
+- Chat endpoint: `POST /api/v1/chat`
