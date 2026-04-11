@@ -1190,6 +1190,8 @@ function Dashboard() {
           ok: true,
           interrupted: false,
           answer: aiText,
+          fullAnswer: aiText,
+          structuredPayload,
         };
       } catch (error) {
         const rawMessage = error instanceof Error ? error.message : "";

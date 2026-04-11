@@ -6,12 +6,69 @@ import {
   stopSpeaking,
 } from "../utils/speechSynthesis";
 
-const SILENCE_TIMEOUT_MS = 1500;
+const SILENCE_TIMEOUT_MS = 5000;
 const LISTEN_RESTART_MS = 420;
+const MIN_TRANSCRIPT_WORDS = 2;
+const MIN_TRANSCRIPT_CHARS = 6;
+const SHORT_RESPONSE_MAX_CHARS = 220;
 
 function isFatalRecognitionError(message) {
   const value = String(message || "").toLowerCase();
   return value.includes("permission denied") || value.includes("voice not supported");
+}
+
+function normalizeVoiceText(value) {
+  return String(value || "")
+    .replace(/\[source\s*\d+\]/gi, "")
+    .replace(/\*\*/g, "")
+    .replace(/[_`#>*-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function shouldIgnoreTranscript(value) {
+  const cleaned = normalizeVoiceText(value);
+  if (!cleaned) {
+    return true;
+  }
+
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  return words.length < MIN_TRANSCRIPT_WORDS || cleaned.length < MIN_TRANSCRIPT_CHARS;
+}
+
+function generateShortResponse(fullAnswer) {
+  const cleaned = normalizeVoiceText(fullAnswer);
+  if (!cleaned) {
+    return "I don't have enough information yet. Please try asking that again.";
+  }
+
+  if (cleaned.length <= SHORT_RESPONSE_MAX_CHARS) {
+    return cleaned;
+  }
+
+  const sentenceParts = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (sentenceParts.length) {
+    const combined = [];
+    for (const sentence of sentenceParts) {
+      combined.push(sentence);
+      if (combined.length >= 2) {
+        break;
+      }
+    }
+
+    const shortText = combined.join(" ").trim();
+    if (shortText.length <= SHORT_RESPONSE_MAX_CHARS) {
+      return shortText;
+    }
+  }
+
+  const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 30);
+  const compact = words.join(" ").trim();
+  return compact ? `${compact}...` : cleaned.slice(0, SHORT_RESPONSE_MAX_CHARS).trim();
 }
 
 function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
@@ -99,6 +156,12 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
         return;
       }
 
+      if (shouldIgnoreTranscript(utterance)) {
+        setStatusText("Listening...");
+        scheduleListeningRestart(260);
+        return;
+      }
+
       speechInterruptedRef.current = false;
       setModeError("");
       setIsThinking(true);
@@ -121,17 +184,27 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
         }
 
         setModeError(String(result?.error || "Voice request failed."));
+        if (isVoiceOutputEnabled && isSpeechOutputSupported) {
+          const fallbackSpeech =
+            "I couldn't process that just now. Please try again.";
+          speakText(fallbackSpeech, {
+            rate: voiceRate,
+            pitch: voicePitch,
+          });
+        }
         setStatusText("Listening...");
         scheduleListeningRestart(620);
         return;
       }
 
-      const answerText = String(result?.answer || "").trim();
-      if (!answerText) {
+      const fullAnswerText = String(result?.fullAnswer || result?.answer || "").trim();
+      if (!fullAnswerText) {
         setStatusText("Listening...");
         scheduleListeningRestart();
         return;
       }
+
+      const shortResponse = generateShortResponse(fullAnswerText);
 
       if (!isVoiceOutputEnabled || !isSpeechOutputSupported) {
         setStatusText("Listening...");
@@ -139,7 +212,7 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
         return;
       }
 
-      lastSpokenTextRef.current = answerText.toLowerCase();
+      lastSpokenTextRef.current = shortResponse.toLowerCase();
       speechInterruptedRef.current = false;
       setIsSpeaking(true);
       setStatusText("Speaking...");
@@ -149,7 +222,7 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
       resetTranscript();
       startListening();
 
-      const speechResult = speakText(answerText, {
+      const speechResult = speakText(shortResponse, {
         rate: voiceRate,
         pitch: voicePitch,
         onStart: () => {
@@ -297,7 +370,7 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
   }, [isListening, isSpeaking, liveTranscript]);
 
   useEffect(() => {
-    if (!isListening || isThinking) {
+    if (isThinking) {
       return;
     }
 
@@ -313,13 +386,21 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
       window.clearTimeout(silenceTimeoutRef.current);
     }
 
+    const capturedTranscript = liveTranscript;
+
     silenceTimeoutRef.current = window.setTimeout(() => {
       if (!activeRef.current) {
         return;
       }
 
-      const finalUtterance = String(transcript || interimTranscript || "").trim();
+      const finalUtterance = String(capturedTranscript || transcript || interimTranscript || "").trim();
       if (!finalUtterance) {
+        return;
+      }
+
+      if (shouldIgnoreTranscript(finalUtterance)) {
+        setStatusText("Listening...");
+        scheduleListeningRestart(260);
         return;
       }
 
@@ -337,12 +418,12 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
   }, [
     clearError,
     interimTranscript,
-    isListening,
     isSpeaking,
     isThinking,
     liveTranscript,
     processVoiceTurn,
     resetTranscript,
+    scheduleListeningRestart,
     transcript,
   ]);
 
