@@ -183,8 +183,8 @@ class ChatService:
                 print(f"[RAG][Search][{index}] {title} :: {snippet[:220]}")
 
             if not web_data:
-                print("[RAG][Search] Forced search failed; returning safe fallback response.")
-                main_answer = ChatService.REALTIME_FALLBACK_MESSAGE
+                print("[RAG][Search] Forced search returned empty data even after retries/fallbacks.")
+                print("[RAG][Search] Continuing without web grounding as last-resort safety path.")
 
         if not main_answer:
             rag_context = rag_service.construct_rag_context(web_data) if web_data else ""
