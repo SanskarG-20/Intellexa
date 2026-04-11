@@ -2534,6 +2534,29 @@ button {
   color: var(--text-dim);
 }
 
+.chat-reframed-query {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(77, 255, 210, 0.42);
+  border-radius: 6px;
+  background: rgba(77, 255, 210, 0.07);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chat-reframed-query-label {
+  font-family: var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.chat-reframed-query-text {
+  color: var(--text);
+}
+
 .chat-message-user {
   align-self: flex-end;
   border-color: rgba(77, 255, 210, 0.35);

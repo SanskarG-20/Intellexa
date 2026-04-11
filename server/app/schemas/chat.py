@@ -13,6 +13,7 @@ class ChatResponse(BaseModel):
     Schema for the chatbot's response.
     """
     perspective_autopsy: Optional[dict] = Field(None, description="Detailed cognitive analysis of the user's query.")
+    reframed_query: Optional[str] = Field(None, description="Conditionally rewritten neutral query used for reasoning.")
     answer: Optional[dict] = Field(None, description="Multi-perspective answer object.")
     explanation: Optional[List[str]] = Field(None, description="Explanation bullets for how the answer was built.")
     ethical_check: Optional[dict] = Field(None, description="Ethical safety check output.")

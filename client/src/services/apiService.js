@@ -30,6 +30,12 @@ function normalizeBackendResponse(data) {
     payload.search_results ??
     null;
   const toolCalls = payload.tool_calls ?? payload.tools ?? payload.tool_invocations ?? null;
+  const reframedQuery =
+    payload.reframed_query ??
+    payload.reframedQuery ??
+    payload.neutral_reframe?.reframed_query ??
+    payload.neutral_reframe?.reframedQuery ??
+    null;
   const searchUsed =
     payload.search_used ??
     payload.web_search_used ??
@@ -45,6 +51,7 @@ function normalizeBackendResponse(data) {
     citations: payload.citations ?? null,
     references: payload.references ?? null,
     search_used: searchUsed,
+    reframed_query: typeof reframedQuery === "string" ? reframedQuery : null,
     tool_calls: toolCalls,
     tool_events: payload.tool_events ?? null,
     explanation: payload.explanation ?? null,

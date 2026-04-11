@@ -4,6 +4,7 @@ from app.services.context_service import context_service
 from app.services.ethics_service import ethics_service
 from app.services.explanation_service import explanation_service
 from app.services.perspective_service import perspective_service
+from app.services.reframe_service import reframe_service
 from app.services.trust_service import trust_service
 from app.db.supabase import supabase
 
@@ -12,8 +13,9 @@ from app.db.supabase import supabase
 class ChatService:
     """
     Business logic layer orchestrating the full response pipeline:
-    1) autopsy, 2) context, 3) main answer, 4) multi-perspective answer,
-    5) ethical check, 6) explanation generation, 7) trust score.
+    1) autopsy, 2) optional query reframe, 3) context, 4) main answer,
+    5) multi-perspective answer, 6) ethical check, 7) explanation,
+    8) trust score.
     """
 
     @classmethod
@@ -72,34 +74,39 @@ class ChatService:
         # 1. Perspective Autopsy (Gemini)
         autopsy_res = await autopsy_service.perform_autopsy(message)
 
-        # 2. Context retrieval
+        # 2. Conditional Query Reframing (Wow Mode)
+        reframe_payload = await reframe_service.reframe_query(message, autopsy_res)
+        reframed_query = str((reframe_payload or {}).get("reframed_query", "")).strip()
+        query_for_reasoning = reframed_query or message
+
+        # 3. Context retrieval
         context = await context_service.get_user_context(user_id, limit=5)
 
-        # 3. Main answer (LLaMA)
+        # 4. Main answer (LLaMA)
         system_prompt = ChatService._build_main_system_prompt(context)
-        main_answer = await llama_service.get_ai_response(message, system_prompt=system_prompt)
+        main_answer = await llama_service.get_ai_response(query_for_reasoning, system_prompt=system_prompt)
 
-        # 4. Multi-perspective generation
+        # 5. Multi-perspective generation
         answer = await perspective_service.generate_perspectives(
-            user_query=message,
+            user_query=query_for_reasoning,
             context=context,
             base_answer=main_answer,
         )
 
-        # 5. Ethical check
-        ethical_check = await ethics_service.get_ethical_perspectives(main_answer, message)
+        # 6. Ethical check
+        ethical_check = await ethics_service.get_ethical_perspectives(main_answer, query_for_reasoning)
 
-        # 6. Explanation generation
+        # 7. Explanation generation
         explanation = await explanation_service.generate_explanation(
-            user_query=message,
+            user_query=query_for_reasoning,
             perspective_answer=answer,
             ethical_check=ethical_check,
             perspective_autopsy=autopsy_res,
             context=context,
         )
 
-        # 7. Trust score calculation
-        context_relevance = ChatService._estimate_context_relevance(message, context)
+        # 8. Trust score calculation
+        context_relevance = ChatService._estimate_context_relevance(query_for_reasoning, context)
         trust_payload = trust_service.calculate_trust_score(
             context_relevance=context_relevance,
             bias_detected=bool(ethical_check.get("bias_detected", False)),
@@ -123,6 +130,7 @@ class ChatService:
         # New contract fields + legacy compatibility fields.
         return {
             "perspective_autopsy": autopsy_res,
+            "reframed_query": reframed_query or None,
             "answer": answer,
             "explanation": explanation,
             "ethical_check": ethical_check,
@@ -132,7 +140,11 @@ class ChatService:
                 "trust_score": trust_score,
                 "confidence": confidence,
             },
-            "neutral_reframe": None,
+            "neutral_reframe": (
+                {"reframed_query": reframed_query}
+                if reframed_query
+                else None
+            ),
             "response": main_answer,
             "ethical_perspectives": answer,
             "audit_results": ethical_check,

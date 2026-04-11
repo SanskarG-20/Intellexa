@@ -480,10 +480,25 @@ function extractPerspectivePayload(data) {
   return perspectives;
 }
 
+function extractReframedQuery(data) {
+  const value =
+    data?.reframed_query ??
+    data?.reframedQuery ??
+    data?.neutral_reframe?.reframed_query ??
+    data?.neutral_reframe?.reframedQuery;
+
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim();
+}
+
 function buildStructuredPayload(data) {
   const explanationItems = extractExplanationItems(data);
   const autopsy = extractAutopsyPayload(data);
   const perspectives = extractPerspectivePayload(data);
+  const reframedQuery = extractReframedQuery(data);
   const sources = extractSources(data);
   const searchUsed = detectSearchUsed(data, sources);
   const ethicalCheck = isPlainObject(data?.ethical_check)
@@ -502,6 +517,7 @@ function buildStructuredPayload(data) {
     ethicalCheck,
     trustScore,
     confidence,
+    reframedQuery,
     sources,
     searchUsed,
   };
@@ -1455,6 +1471,8 @@ function Dashboard() {
                     const isTypingMessage = isAssistant && typingState.messageId === message.id;
                     const displayedContent = isTypingMessage ? typingState.visibleText : message.content;
                     const responseText = displayedContent || (isTypingMessage ? "" : message.content);
+                    const reframedQuery = String(message.structured?.reframedQuery || "").trim();
+                    const hasReframedQuery = isAssistant && Boolean(reframedQuery);
                     const messageSources = Array.isArray(message.structured?.sources)
                       ? message.structured.sources
                       : [];
@@ -1483,6 +1501,13 @@ function Dashboard() {
                         <span className="chat-message-role">
                           {message.role === "user" ? "You" : "Intellexa"}
                         </span>
+
+                        {hasReframedQuery ? (
+                          <p className="chat-reframed-query" aria-label="Reframed Question">
+                            <span className="chat-reframed-query-label">🪞 Reframed Question:</span>{" "}
+                            <span className="chat-reframed-query-text">&quot;{reframedQuery}&quot;</span>
+                          </p>
+                        ) : null}
 
                         <div className="chat-response-text">
                           {renderFormattedAnswer(responseText, messageSources)}
