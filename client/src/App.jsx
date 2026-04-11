@@ -864,9 +864,9 @@ function App() {
         <footer className="page-footer">
           <span className="footer-logo">[ INTELLEXA ]</span>
           <span className="footer-tech">
-            Groq · Gemini · Clerk · Supabase · React
+            Llama · Gemini · Clerk · Supabase · React · Spline · DuckDuckGo
           </span>
-          <span className="footer-copy">© 2025 Team Nexus</span>
+          <span className="footer-copy">© 2026 Team Zexters</span>
         </footer>
       </div>
     </div>

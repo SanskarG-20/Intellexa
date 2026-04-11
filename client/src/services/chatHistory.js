@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim();
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+const SUPABASE_ANON_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ||
+  import.meta.env.VITE_SUPABASE_KEY?.trim();
 const ANALYSIS_CACHE_KEY = "intellexa_chat_analysis_v1";
 const LOCAL_CHAT_CACHE_KEY = "intellexa_local_chat_history_v1";
 
@@ -17,7 +19,7 @@ export function isCloudHistoryEnabled() {
 function ensureSupabaseClient() {
   if (!supabase) {
     throw new Error(
-      "Missing Supabase config. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in client/.env (VITE_ keys are required for browser access)."
+      "Missing Supabase config. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY) in client/.env (VITE_ keys are required for browser access)."
     );
   }
 
