@@ -1,6 +1,7 @@
 import { SignOutButton, useUser } from "@clerk/clerk-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ChatHistorySidebar from "../components/ChatHistorySidebar";
+import VoiceMode from "../components/VoiceMode";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useApiService } from "../services/apiService";
 import {
@@ -853,6 +854,7 @@ function Dashboard() {
   const [errorMessage, setErrorMessage] = useState("");
   const [voiceStatusMessage, setVoiceStatusMessage] = useState("");
   const [isVoiceOutputEnabled, setIsVoiceOutputEnabled] = useState(true);
+  const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceRate, setVoiceRate] = useState(1);
   const [thinkingStepIndex, setThinkingStepIndex] = useState(0);
@@ -1087,10 +1089,19 @@ function Dashboard() {
   }, [stopTypingAnimation, typingState.messageId, typingState.visibleText]);
 
   const submitMessage = useCallback(
-    async (rawMessage) => {
+    async (rawMessage, options = {}) => {
       const nextMessage = String(rawMessage || "").trim();
+      const shouldSpeakResponse = options?.shouldSpeakResponse ?? isVoiceOutputEnabled;
+      const appendInterruptMessage = options?.appendInterruptMessage ?? true;
+      const animateResponse = options?.animateResponse ?? true;
+      const clearInput = options?.clearInput ?? true;
+
       if (!nextMessage || isResponseInterruptible) {
-        return;
+        return {
+          ok: false,
+          interrupted: false,
+          error: "Cannot submit an empty message or while another response is active.",
+        };
       }
 
       userInterruptedRef.current = false;
@@ -1104,7 +1115,9 @@ function Dashboard() {
       setIsSearchLikely(isLikelySearchIntent(nextMessage));
       setErrorMessage("");
       setVoiceStatusMessage("");
-      setInputValue("");
+      if (clearInput) {
+        setInputValue("");
+      }
       setMessages((prev) => [...prev, createChatMessage("user", nextMessage)]);
       setIsLoading(true);
 
@@ -1114,13 +1127,17 @@ function Dashboard() {
         });
 
         if (userInterruptedRef.current) {
-          return;
+          return {
+            ok: false,
+            interrupted: true,
+            error: "Request canceled by user.",
+          };
         }
 
         const structuredPayload = buildStructuredPayload(data);
         const aiText = structuredPayload.answer || "I could not generate a response just now.";
         const assistantMessage = createChatMessage("assistant", aiText, structuredPayload, {
-          animate: true,
+          animate: animateResponse,
         });
 
         setMessages((prev) => [...prev, assistantMessage]);
@@ -1129,7 +1146,7 @@ function Dashboard() {
           setActiveInsightMessageId(assistantMessage.id);
         }
 
-        if (isVoiceOutputEnabled && aiText && isSpeechSynthesisAvailable) {
+        if (shouldSpeakResponse && aiText && isSpeechSynthesisAvailable) {
           const speechResult = speakText(aiText, {
             rate: voiceRate,
             onStart: () => {
@@ -1168,6 +1185,12 @@ function Dashboard() {
             setHistoryErrorMessage(message);
           }
         }
+
+        return {
+          ok: true,
+          interrupted: false,
+          answer: aiText,
+        };
       } catch (error) {
         const rawMessage = error instanceof Error ? error.message : "";
         const isInterrupted =
@@ -1176,8 +1199,14 @@ function Dashboard() {
 
         if (isInterrupted) {
           setErrorMessage("");
-          setMessages((prev) => [...prev, createChatMessage("assistant", "Generation stopped.")]);
-          return;
+          if (appendInterruptMessage) {
+            setMessages((prev) => [...prev, createChatMessage("assistant", "Generation stopped.")]);
+          }
+          return {
+            ok: false,
+            interrupted: true,
+            error: "Request canceled by user.",
+          };
         }
 
         const userVisibleMessage = toFriendlyChatErrorMessage(rawMessage);
@@ -1192,6 +1221,12 @@ function Dashboard() {
             { isError: true }
           ),
         ]);
+
+        return {
+          ok: false,
+          interrupted: false,
+          error: userVisibleMessage,
+        };
       } finally {
         requestAbortControllerRef.current = null;
         setIsLoading(false);
@@ -1289,6 +1324,50 @@ function Dashboard() {
   const handleStopSpeaking = useCallback(() => {
     stopVoicePlayback();
   }, [stopVoicePlayback]);
+
+  const handleStartVoiceMode = useCallback(() => {
+    userInterruptedRef.current = true;
+    stopTypingAnimation();
+
+    if (requestAbortControllerRef.current) {
+      requestAbortControllerRef.current.abort();
+      requestAbortControllerRef.current = null;
+    }
+
+    if (isLoading) {
+      setIsLoading(false);
+      setIsSearchLikely(false);
+    }
+
+    stopListening();
+    stopVoicePlayback();
+    resetTranscript();
+    shouldAutoSubmitVoiceRef.current = false;
+    setIsVoiceModeActive(true);
+    setVoiceStatusMessage("");
+    setErrorMessage("");
+  }, [isLoading, resetTranscript, stopListening, stopTypingAnimation, stopVoicePlayback]);
+
+  const handleStopVoiceMode = useCallback(() => {
+    stopListening();
+    stopVoicePlayback();
+    resetTranscript();
+    shouldAutoSubmitVoiceRef.current = false;
+    setIsVoiceModeActive(false);
+    setVoiceStatusMessage("");
+  }, [resetTranscript, stopListening, stopVoicePlayback]);
+
+  const handleVoiceModeSubmit = useCallback(
+    async (spokenText) => {
+      return submitMessage(spokenText, {
+        shouldSpeakResponse: false,
+        appendInterruptMessage: false,
+        animateResponse: false,
+        clearInput: false,
+      });
+    },
+    [submitMessage]
+  );
 
   useEffect(() => {
     if (!shouldAutoScrollRef.current) {
@@ -1627,6 +1706,7 @@ function Dashboard() {
     stopListening();
     resetTranscript();
     shouldAutoSubmitVoiceRef.current = false;
+    setIsVoiceModeActive(false);
     shouldAutoScrollRef.current = true;
     typedMessageIdsRef.current = new Set();
     setActiveInsightMessageId(null);
@@ -1683,11 +1763,21 @@ function Dashboard() {
             <h1 className="dashboard-title">Welcome, {name}</h1>
             <p className="dashboard-subtitle">Your authenticated AI chat workspace.</p>
           </div>
-          <SignOutButton>
-            <button className="dashboard-signout" type="button">
-              Sign out
+          <div className="dashboard-header-actions">
+            <button
+              type="button"
+              className={`dashboard-voice-mode-toggle ${isVoiceModeActive ? "is-active" : ""}`}
+              onClick={isVoiceModeActive ? handleStopVoiceMode : handleStartVoiceMode}
+            >
+              {isVoiceModeActive ? "Stop Voice Mode" : "Start Voice Mode"}
             </button>
-          </SignOutButton>
+
+            <SignOutButton>
+              <button className="dashboard-signout" type="button">
+                Sign out
+              </button>
+            </SignOutButton>
+          </div>
         </header>
 
         {errorMessage ? (
@@ -1696,6 +1786,12 @@ function Dashboard() {
           </p>
         ) : null}
 
+        {isVoiceModeActive ? (
+          <VoiceMode
+            onSubmitVoiceQuery={handleVoiceModeSubmit}
+            onStopVoiceMode={handleStopVoiceMode}
+          />
+        ) : (
         <div className="dashboard-chat-layout">
           <ChatHistorySidebar
             chats={chatHistoryItems}
@@ -1944,6 +2040,7 @@ function Dashboard() {
             </div>
           </div>
         </div>
+        )}
       </div>
     </section>
   );
