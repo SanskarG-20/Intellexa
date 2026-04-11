@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # CORS (comma-separated origins). Example:
     # CORS_ALLOW_ORIGINS=https://intellexa-lac.vercel.app,https://your-frontend.app
     CORS_ALLOW_ORIGINS: str = ""
-    CORS_ALLOW_ORIGIN_REGEX: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    CORS_ALLOW_ORIGIN_REGEX: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?$|https://([a-zA-Z0-9-]+\.)*vercel\.app$"
 
     # Gemini Settings
     GEMINI_API_KEY: str = ""
