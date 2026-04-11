@@ -9,6 +9,7 @@ import {
   isCloudHistoryEnabled,
   persistStructuredPayloadForChat,
   saveMessage,
+  updateChatById,
 } from "../services/chatHistory";
 
 const PERSPECTIVE_TABS = [
@@ -1334,8 +1335,15 @@ function Dashboard() {
 
       if (userId) {
         try {
-          const saved = await saveMessage(userId, nextMessage, aiText, structuredPayload);
-          const preferredChatId = activeChatId ? null : saved?.id || null;
+          let preferredChatId = activeChatId;
+
+          if (activeChatId) {
+            await updateChatById(activeChatId, userId, nextMessage, aiText, structuredPayload);
+          } else {
+            const saved = await saveMessage(userId, nextMessage, aiText, structuredPayload);
+            preferredChatId = saved?.id || null;
+          }
+
           await loadHistory(preferredChatId);
         } catch (historyError) {
           const message =

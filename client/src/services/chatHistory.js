@@ -334,6 +334,102 @@ export async function saveMessage(userId, message, response, structuredPayload =
   return normalized;
 }
 
+export async function updateChatById(chatId, userId, message, response, structuredPayload = null) {
+  const safeChatId = String(chatId || "").trim();
+  const safeUserId = ensureUserId(userId);
+  const safeMessage = String(message || "").trim();
+  const safeResponse = String(response || "").trim();
+  const safeStructured = sanitizeStructuredPayload(structuredPayload);
+
+  if (!safeChatId) {
+    throw new Error("A valid chatId is required.");
+  }
+
+  if (!safeMessage) {
+    throw new Error("updateChatById requires a non-empty user message.");
+  }
+
+  if (!supabase) {
+    const chats = readLocalChats();
+    let updated = null;
+
+    const nextChats = chats.map((chat) => {
+      if (chat.id !== safeChatId || chat.user_id !== safeUserId) {
+        return chat;
+      }
+
+      updated = normalizeConversationRow({
+        ...chat,
+        message: safeMessage,
+        response: safeResponse,
+        created_at: new Date().toISOString(),
+        structured_payload: safeStructured || chat.structured_payload || null,
+      });
+
+      return updated;
+    });
+
+    if (!updated) {
+      throw new Error("Failed to update chat. Chat not found.");
+    }
+
+    writeLocalChats(sortChatsByDateDesc(nextChats));
+
+    if (safeStructured) {
+      const cache = readAnalysisCache();
+      cache[safeChatId] = safeStructured;
+      writeAnalysisCache(cache);
+    }
+
+    return updated;
+  }
+
+  const client = ensureSupabaseClient();
+  const updatePayload = {
+    message: safeMessage,
+    response: safeResponse,
+    created_at: new Date().toISOString(),
+  };
+
+  let query = client
+    .from("conversations")
+    .update(updatePayload)
+    .eq("id", safeChatId)
+    .eq("user_id", safeUserId)
+    .select("id, user_id, message, response, created_at")
+    .maybeSingle();
+
+  let { data, error } = await query;
+
+  if (error && /created_at/i.test(error.message || "")) {
+    query = client
+      .from("conversations")
+      .update({
+        message: safeMessage,
+        response: safeResponse,
+      })
+      .eq("id", safeChatId)
+      .eq("user_id", safeUserId)
+      .select("id, user_id, message, response, created_at")
+      .maybeSingle();
+
+    ({ data, error } = await query);
+  }
+
+  if (error) {
+    throw new Error(error.message || "Failed to update chat.");
+  }
+
+  const normalized = normalizeConversationRow(data);
+
+  if (safeStructured) {
+    await persistStructuredPayloadForChat(safeChatId, safeStructured);
+    normalized.structured_payload = safeStructured;
+  }
+
+  return normalized;
+}
+
 export async function getChatById(chatId) {
   const safeChatId = String(chatId || "").trim();
 
