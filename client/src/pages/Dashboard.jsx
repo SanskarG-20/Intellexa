@@ -1504,7 +1504,17 @@ function Dashboard() {
 
                         {hasReframedQuery ? (
                           <p className="chat-reframed-query" aria-label="Reframed Question">
-                            <span className="chat-reframed-query-label">🪞 Reframed Question:</span>{" "}
+                            <span className="chat-reframed-query-label">
+                              <span className="chat-reframed-query-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                                  <path
+                                    d="M4 5a3 3 0 0 1 3-3h7.586a3 3 0 0 1 2.121.879l2.414 2.414A3 3 0 0 1 20 7.414V19a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V5Zm12 1h2.586l-2.586-2.586V6ZM8 11a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2H8Zm0 4a1 1 0 1 0 0 2h5a1 1 0 1 0 0-2H8Z"
+                                    fill="currentColor"
+                                  />
+                                </svg>
+                              </span>
+                              Reframed Question:
+                            </span>{" "}
                             <span className="chat-reframed-query-text">&quot;{reframedQuery}&quot;</span>
                           </p>
                         ) : null}
