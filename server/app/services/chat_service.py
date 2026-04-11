@@ -77,6 +77,7 @@ class ChatService:
         # 2. Conditional Query Reframing (Wow Mode)
         reframe_payload = await reframe_service.reframe_query(message, autopsy_res)
         reframed_query = str((reframe_payload or {}).get("reframed_query", "")).strip()
+        print(f"REFRAMED: {reframed_query or '<none>'}")
         query_for_reasoning = reframed_query or message
 
         # 3. Context retrieval

@@ -846,6 +846,8 @@ function Dashboard() {
   const shouldAutoScrollRef = useRef(true);
   const autoScrollRafRef = useRef(null);
   const programmaticScrollLockUntilRef = useRef(0);
+  const requestAbortControllerRef = useRef(null);
+  const userInterruptedRef = useRef(false);
 
   const activeInsightMessage = activeInsightMessageId
     ? messages.find(
@@ -856,6 +858,7 @@ function Dashboard() {
   const loadingStatusMessages = isSearchLikely
     ? SEARCH_AWARE_STATUS_MESSAGES
     : THINKING_STATUS_MESSAGES;
+  const isResponseInterruptible = isLoading || Boolean(typingState.messageId);
   const cloudHistoryEnabled = isCloudHistoryEnabled();
 
   const loadHistory = useCallback(
@@ -1030,6 +1033,48 @@ function Dashboard() {
     [stopTypingAnimation]
   );
 
+  const interruptTypingResponse = useCallback(() => {
+    if (!typingState.messageId) {
+      return false;
+    }
+
+    const partialText = String(typingState.visibleText || "").trimEnd();
+
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === typingState.messageId
+          ? {
+              ...message,
+              content: partialText || "Generation stopped.",
+              animate: false,
+            }
+          : message
+      )
+    );
+
+    stopTypingAnimation();
+    return true;
+  }, [stopTypingAnimation, typingState.messageId, typingState.visibleText]);
+
+  const handleInterruptResponse = useCallback(() => {
+    userInterruptedRef.current = true;
+    const didInterruptTyping = interruptTypingResponse();
+
+    if (requestAbortControllerRef.current) {
+      requestAbortControllerRef.current.abort();
+      requestAbortControllerRef.current = null;
+    }
+
+    if (isLoading) {
+      setIsLoading(false);
+      setIsSearchLikely(false);
+    }
+
+    if (didInterruptTyping) {
+      setErrorMessage("");
+    }
+  }, [interruptTypingResponse, isLoading]);
+
   useEffect(() => {
     if (!shouldAutoScrollRef.current) {
       return undefined;
@@ -1128,6 +1173,11 @@ function Dashboard() {
 
       if (autoScrollRafRef.current !== null) {
         window.cancelAnimationFrame(autoScrollRafRef.current);
+      }
+
+      if (requestAbortControllerRef.current) {
+        requestAbortControllerRef.current.abort();
+        requestAbortControllerRef.current = null;
       }
     };
   }, []);
@@ -1321,7 +1371,11 @@ function Dashboard() {
     event.preventDefault();
 
     const nextMessage = inputValue.trim();
-    if (!nextMessage || isLoading) return;
+    if (!nextMessage || isResponseInterruptible) return;
+
+    userInterruptedRef.current = false;
+    const requestAbortController = new AbortController();
+    requestAbortControllerRef.current = requestAbortController;
 
     stopTypingAnimation();
     shouldAutoScrollRef.current = true;
@@ -1333,7 +1387,14 @@ function Dashboard() {
     setIsLoading(true);
 
     try {
-      const data = await sendMessage(nextMessage);
+      const data = await sendMessage(nextMessage, {
+        signal: requestAbortController.signal,
+      });
+
+      if (userInterruptedRef.current) {
+        return;
+      }
+
       const structuredPayload = buildStructuredPayload(data);
       const aiText = structuredPayload.answer || "I could not generate a response just now.";
       const assistantMessage = createChatMessage("assistant", aiText, structuredPayload, {
@@ -1371,6 +1432,19 @@ function Dashboard() {
       }
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : "";
+      const isInterrupted =
+        userInterruptedRef.current ||
+        /request canceled|cancelled|canceled|aborted|abort/i.test(rawMessage);
+
+      if (isInterrupted) {
+        setErrorMessage("");
+        setMessages((prev) => [
+          ...prev,
+          createChatMessage("assistant", "Generation stopped."),
+        ]);
+        return;
+      }
+
       const userVisibleMessage = toFriendlyChatErrorMessage(rawMessage);
 
       setErrorMessage(userVisibleMessage);
@@ -1384,6 +1458,7 @@ function Dashboard() {
         ),
       ]);
     } finally {
+      requestAbortControllerRef.current = null;
       setIsLoading(false);
       setIsSearchLikely(false);
     }
@@ -1392,7 +1467,7 @@ function Dashboard() {
   const handleInputKeyDown = (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (!isLoading) {
+      if (!isResponseInterruptible) {
         void handleSubmit(event);
       }
     }
@@ -1471,7 +1546,13 @@ function Dashboard() {
                     const isTypingMessage = isAssistant && typingState.messageId === message.id;
                     const displayedContent = isTypingMessage ? typingState.visibleText : message.content;
                     const responseText = displayedContent || (isTypingMessage ? "" : message.content);
-                    const reframedQuery = String(message.structured?.reframedQuery || "").trim();
+                    const reframedQuery = String(
+                      message.structured?.reframedQuery ||
+                        message.structured?.reframed_query ||
+                        message.structured?.neutral_reframe?.reframed_query ||
+                        message.structured?.neutral_reframe?.reframedQuery ||
+                        ""
+                    ).trim();
                     const hasReframedQuery = isAssistant && Boolean(reframedQuery);
                     const messageSources = Array.isArray(message.structured?.sources)
                       ? message.structured.sources
@@ -1604,8 +1685,13 @@ function Dashboard() {
                   />
                   <div className="chat-input-actions">
                     <p className="chat-input-hint">Press Enter to send, Shift + Enter for a new line.</p>
-                    <button className="chat-send-button" type="submit" disabled={isLoading || !inputValue.trim()}>
-                      {isLoading ? (isSearchLikely ? "Searching..." : "Thinking...") : "Send"}
+                    <button
+                      className={`chat-send-button${isResponseInterruptible ? " chat-stop-button" : ""}`}
+                      type={isResponseInterruptible ? "button" : "submit"}
+                      onClick={isResponseInterruptible ? handleInterruptResponse : undefined}
+                      disabled={isResponseInterruptible ? false : isLoading || !inputValue.trim()}
+                    >
+                      {isResponseInterruptible ? "Stop" : "Send"}
                     </button>
                   </div>
                 </form>

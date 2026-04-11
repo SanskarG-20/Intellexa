@@ -92,7 +92,10 @@ RULES:
         if not original:
             return {"reframed_query": ""}
 
-        if not cls.should_reframe(original, autopsy_result):
+        force_reframe = bool(getattr(settings, "FORCE_REFRAME_DEBUG", False))
+        if force_reframe:
+            print("[ReframeService] FORCE_REFRAME_DEBUG=true -> forcing reframed_query generation")
+        elif not cls.should_reframe(original, autopsy_result):
             return {"reframed_query": ""}
 
         api_key = settings.GEMINI_API_KEY.strip()

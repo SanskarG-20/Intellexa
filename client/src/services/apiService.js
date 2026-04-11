@@ -89,14 +89,18 @@ async function getAuthorizationHeader(getToken, { forceRefresh = false } = {}) {
   return `Bearer ${token}`;
 }
 
-async function postChatMessage(message, authorization) {
-  const requestConfig = authorization
-    ? {
-        headers: {
-          Authorization: authorization,
-        },
-      }
-    : undefined;
+async function postChatMessage(message, authorization, signal) {
+  const requestConfig = {};
+
+  if (authorization) {
+    requestConfig.headers = {
+      Authorization: authorization,
+    };
+  }
+
+  if (signal) {
+    requestConfig.signal = signal;
+  }
 
   const { data } = await apiClient.post(
     "/v1/chat",
@@ -109,18 +113,24 @@ async function postChatMessage(message, authorization) {
   return data;
 }
 
-export async function sendMessage(message, getToken) {
+export async function sendMessage(message, getToken, options = {}) {
   if (typeof message !== "string" || !message.trim()) {
     throw new Error("sendMessage(message) requires a non-empty message string.");
   }
 
+  const signal = options?.signal;
+
   let authorization = await getAuthorizationHeader(getToken);
 
   try {
-    const data = await postChatMessage(message, authorization);
+    const data = await postChatMessage(message, authorization, signal);
     return normalizeBackendResponse(data);
   } catch (error) {
     if (axios.isAxiosError(error)) {
+      if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
+        throw new Error("Request canceled by user.");
+      }
+
       const statusCode = error.response?.status;
 
       if (statusCode === 401) {
@@ -140,7 +150,7 @@ export async function sendMessage(message, getToken) {
           }
 
           authorization = refreshedAuthorization;
-          const retryData = await postChatMessage(message, refreshedAuthorization);
+          const retryData = await postChatMessage(message, refreshedAuthorization, signal);
           return normalizeBackendResponse(retryData);
         } catch {
           throw new Error(
@@ -175,12 +185,12 @@ export function useApiService() {
   const { getToken, isLoaded } = useAuth();
 
   const sendAuthenticatedMessage = useCallback(
-    async (message) => {
+    async (message, options = {}) => {
       if (!isLoaded) {
         throw new Error("Authentication is still loading. Please try again.");
       }
 
-      return sendMessage(message, getToken);
+      return sendMessage(message, getToken, options);
     },
     [getToken, isLoaded]
   );

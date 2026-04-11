@@ -2834,6 +2834,15 @@ button {
   background: var(--accent-dim);
 }
 
+.chat-send-button.chat-stop-button {
+  border-color: rgba(255, 95, 87, 0.7);
+  color: #ffb1aa;
+}
+
+.chat-send-button.chat-stop-button:hover:enabled {
+  background: rgba(255, 95, 87, 0.16);
+}
+
 .chat-send-button:disabled {
   border-color: var(--border);
   color: var(--text-dim);

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # Gemini Settings
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
+    FORCE_REFRAME_DEBUG: bool = False
 
     # Hugging Face Settings
     HF_TOKEN: str = ""
