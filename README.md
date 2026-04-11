@@ -5,11 +5,12 @@ Trust-aware, explainable AI for real-world decision support.
 Intellexa doesn’t just answer questions — it questions the question itself.
 
 ## Key Idea
-Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluates user intent before answering, detects bias and assumptions, decides when external search is needed, and returns answers with transparent reasoning, ethical safeguards, and trust signals.
+Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluates user intent before answering, detects bias and assumptions, can reframe problematic prompts, decides when external search is needed, and returns answers with transparent reasoning, ethical safeguards, and trust signals.
 
 ## Why Intellexa Is Different
 - Agentic AI workflow: the model decides when to call search tools, instead of relying on keyword-triggered retrieval.
 - Cognitive challenge layer: Perspective Autopsy and Clarification Questions actively challenge ambiguous or biased framing.
+- Query Reframing layer: biased or vague prompts can be rewritten into neutral, evidence-seeking queries before generation.
 - Ethical + explainable by default: responses include risk-aware handling, trust metrics, and a clear Why this answer explanation.
 
 ## Features
@@ -26,6 +27,7 @@ Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluate
 
 ### Cognitive and Ethical Reasoning
 - Perspective Autopsy Engine to detect assumptions, bias, and missing angles.
+- Query Reframing (Wow Mode) to conditionally rewrite biased or vague questions.
 - Multi-perspective responses across:
   - Utilitarian
   - Rights-based
@@ -41,6 +43,8 @@ Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluate
 ### Product UX
 - ChatGPT-like dashboard layout.
 - Sidebar history, smooth scrolling, loading states, and typing effects.
+- Reframed Question banner shown above responses when reframing is triggered.
+- Stop button to interrupt in-flight generation and typing animation.
 - Dedicated analysis and source-aware output views.
 
 ## System Architecture
@@ -50,7 +54,8 @@ Intellexa uses a staged architecture that combines agentic decisioning with retr
 flowchart LR
     U[User Query] --> A[Clerk Auth + Protected Route]
     A --> B[Perspective Autopsy]
-    B --> C{Need Clarification?}
+  B --> R[Conditional Query Reframing]
+  R --> C{Need Clarification?}
     C -->|Yes| D[Clarification Question]
     C -->|No| E[LLaMA Draft Answer]
     D --> E
@@ -68,13 +73,15 @@ flowchart LR
 ## How It Works
 1. User logs in via Clerk and sends a prompt from the dashboard.
 2. Intellexa runs Perspective Autopsy to inspect assumptions, framing, and potential bias.
-3. If the query is ambiguous or sensitive, Clarification Question logic can request a follow-up.
-4. LLaMA generates a primary answer draft.
-5. The system decides agentically whether web search is required.
-6. If needed, live web results are retrieved and fused as context.
-7. Intellexa generates multi-perspective output and applies the ethical safety layer.
-8. Explanation and trust metrics are computed.
-9. Final response is returned with sources, and conversation history is stored in Supabase.
+3. If needed, Intellexa reframes the query into a clearer, neutral, evidence-oriented version.
+4. If the query is ambiguous or sensitive, Clarification Question logic can request a follow-up.
+5. LLaMA generates a primary answer draft.
+6. The system decides agentically whether web search is required.
+7. If needed, live web results are retrieved and fused as context.
+8. Intellexa generates multi-perspective output and applies the ethical safety layer.
+9. Explanation and trust metrics are computed.
+10. Final response is returned with sources; when reframing is used, UI shows Reframed Question above the answer.
+11. Conversation history is stored in Supabase.
 
 ## Tech Stack
 - Frontend: React, Vite, Clerk, Axios
@@ -128,6 +135,8 @@ Create env files in client and server roots.
 ```env
 VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
 VITE_API_BASE_URL=http://localhost:8000/api
+# Production example (Vercel -> Railway):
+# VITE_API_BASE_URL=https://your-service.up.railway.app/api
 VITE_CLERK_TOKEN_TEMPLATE=
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
@@ -140,6 +149,8 @@ DEBUG=true
 
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.5-flash
+# Testing only: force query reframing for every prompt
+FORCE_REFRAME_DEBUG=false
 
 HF_TOKEN=your_huggingface_token
 HF_MODEL=meta-llama/Llama-3.1-8B-Instruct
@@ -150,6 +161,12 @@ SUPABASE_KEY=your_supabase_service_key
 SERPAPI_API_KEY=optional_serpapi_key
 MOCK_USER_ID=demo_user
 ```
+
+## Deployment Notes (Vercel + Railway)
+- Set Vercel env `VITE_API_BASE_URL` to your Railway backend base URL with `/api` suffix.
+- Ensure Railway route `POST /api/v1/chat` is reachable.
+- Add your Vercel domain in Railway `CORS_ALLOW_ORIGINS`.
+- Redeploy both services after env changes.
 
 ## Folder Structure
 ```text
