@@ -52,6 +52,110 @@ class RAGService:
     _SEARCH_CACHE: Dict[str, List[Dict[str, str]]] = {}
     _SEARCH_CACHE_MAX_ITEMS = 100
 
+    QUERY_STOPWORDS = {
+        "the",
+        "a",
+        "an",
+        "of",
+        "for",
+        "to",
+        "in",
+        "on",
+        "at",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "and",
+        "or",
+        "from",
+        "with",
+        "without",
+        "about",
+        "status",
+        "current",
+        "latest",
+        "today",
+        "now",
+        "update",
+        "updates",
+    }
+
+    INTENT_TERM_EXPANSIONS = {
+        "conflict": {"war", "military", "tensions", "hostilities", "strike"},
+        "war": {"conflict", "military", "attack", "tensions", "hostilities"},
+        "military": {"war", "conflict", "defense", "strike"},
+        "president": {"leadership", "administration", "white house"},
+        "news": {"latest", "breaking", "report", "update"},
+        "sports": {"match", "score", "league", "tournament", "fixture"},
+        "weather": {"forecast", "rain", "temperature", "storm", "climate"},
+        "ai": {"artificial intelligence", "llm", "model", "machine learning"},
+        "ipl": {"indian premier league", "cricket", "match", "score"},
+    }
+
+    INTENT_ONLY_TERMS = {
+        "conflict",
+        "war",
+        "military",
+        "president",
+        "news",
+        "sports",
+        "weather",
+        "match",
+        "score",
+        "politics",
+        "election",
+        "ipl",
+        "ai",
+    }
+
+    QUERY_DOMAIN_TERMS = {
+        "politics": {
+            "iran",
+            "us",
+            "president",
+            "government",
+            "election",
+            "conflict",
+            "war",
+            "military",
+            "politics",
+            "senate",
+            "congress",
+            "white house",
+        },
+        "sports": {
+            "ipl",
+            "cricket",
+            "match",
+            "score",
+            "league",
+            "tournament",
+            "innings",
+            "team",
+        },
+        "ai": {
+            "ai",
+            "artificial intelligence",
+            "llm",
+            "model",
+            "machine learning",
+            "openai",
+            "anthropic",
+            "gemini",
+        },
+        "weather": {
+            "weather",
+            "forecast",
+            "temperature",
+            "rain",
+            "storm",
+        },
+    }
+
     @classmethod
     def is_realtime_query(cls, query: str) -> bool:
         text = " ".join(str(query or "").split()).lower()
@@ -70,6 +174,149 @@ class RAGService:
         Compatibility alias matching requested naming.
         """
         return cls.is_realtime_query(query)
+
+    @classmethod
+    def _extract_query_terms(cls, query: str) -> List[str]:
+        lowered = " ".join(str(query or "").lower().split())
+        if not lowered:
+            return []
+
+        tokens = re.findall(r"[a-z0-9]{2,}", lowered)
+        terms = []
+        for token in tokens:
+            if token in cls.QUERY_STOPWORDS:
+                continue
+            terms.append(token)
+
+        if "united states" in lowered and "us" not in terms:
+            terms.append("us")
+
+        # Preserve insertion order while deduplicating.
+        seen = set()
+        unique_terms = []
+        for term in terms:
+            if term in seen:
+                continue
+            seen.add(term)
+            unique_terms.append(term)
+
+        return unique_terms
+
+    @classmethod
+    def _detect_domains(cls, text: str) -> set[str]:
+        lowered = " ".join(str(text or "").lower().split())
+        domains: set[str] = set()
+
+        for domain, terms in cls.QUERY_DOMAIN_TERMS.items():
+            if any(term in lowered for term in terms):
+                domains.add(domain)
+
+        return domains
+
+    @classmethod
+    def _build_alternative_query(cls, query: str) -> str:
+        original = " ".join(str(query or "").split()).strip()
+        lowered = original.lower()
+        if not original:
+            return original
+
+        if any(term in lowered for term in {"iran", "conflict", "war", "military"}):
+            suffix = "latest news military conflict"
+        elif any(term in lowered for term in {"ipl", "cricket", "match"}):
+            suffix = "today live score update"
+        elif any(term in lowered for term in {"ai", "artificial intelligence", "llm"}):
+            suffix = "latest developments news"
+        else:
+            suffix = "latest news"
+
+        if suffix in lowered:
+            return original
+
+        return f"{original} {suffix}".strip()
+
+    @classmethod
+    def _score_result_relevance(
+        cls,
+        result: Dict[str, str],
+        query_terms: List[str],
+        intent_terms: List[str],
+        entity_terms: List[str],
+        expanded_terms: set[str],
+        query_domains: set[str],
+    ) -> float:
+        result_text = " ".join(
+            [
+                str(result.get("title", "")),
+                str(result.get("snippet", "")),
+            ]
+        ).lower()
+
+        if not result_text:
+            return 0.0
+
+        result_domains = cls._detect_domains(result_text)
+        if query_domains and result_domains and not (query_domains & result_domains):
+            return 0.0
+
+        term_hits = sum(1 for term in query_terms if term in result_text)
+        intent_hits = sum(1 for term in intent_terms if term in result_text)
+        entity_hits = sum(1 for term in entity_terms if term in result_text)
+        expanded_hits = sum(1 for term in expanded_terms if term in result_text)
+
+        if entity_terms and entity_hits == 0:
+            return 0.0
+
+        if intent_terms and intent_hits == 0 and expanded_hits == 0:
+            return 0.0
+
+        score = (entity_hits * 3.0) + (intent_hits * 2.0) + expanded_hits + term_hits
+        if query_terms:
+            score += min(2.0, term_hits / max(1, len(query_terms)))
+
+        return score
+
+    @classmethod
+    def _filter_results_for_query(cls, query: str, results: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        normalized_results = cls._normalize_results(results)
+        query_terms = cls._extract_query_terms(query)
+
+        if not normalized_results:
+            print("[RAG] FILTERED RESULTS: []")
+            return []
+
+        if not query_terms:
+            kept = normalized_results[:4]
+            print(f"[RAG] FILTERED RESULTS: {[item.get('title', '') for item in kept]}")
+            return kept
+
+        intent_terms = [term for term in query_terms if term in cls.INTENT_ONLY_TERMS]
+        entity_terms = [term for term in query_terms if term not in cls.INTENT_ONLY_TERMS]
+        expanded_terms = {
+            expansion
+            for term in query_terms
+            for expansion in cls.INTENT_TERM_EXPANSIONS.get(term, set())
+            if expansion not in query_terms
+        }
+        query_domains = cls._detect_domains(query)
+
+        scored_results = []
+        for item in normalized_results:
+            score = cls._score_result_relevance(
+                result=item,
+                query_terms=query_terms,
+                intent_terms=intent_terms,
+                entity_terms=entity_terms,
+                expanded_terms=expanded_terms,
+                query_domains=query_domains,
+            )
+            if score > 0:
+                scored_results.append((score, item))
+
+        scored_results.sort(key=lambda pair: pair[0], reverse=True)
+        filtered = [item for _, item in scored_results[:4]]
+
+        print(f"[RAG] FILTERED RESULTS: {[item.get('title', '') for item in filtered]}")
+        return filtered
 
     @staticmethod
     def _clean_text(value: Any) -> str:
@@ -458,6 +705,7 @@ class RAGService:
         Routes the search request to the best available engine.
         Priority: SerpAPI → DuckDuckGo HTML
         """
+        print(f"[RAG] QUERY: {query}")
         print(f"[RAG] SEARCH QUERY: {query}")
         serpapi_configured = bool(settings.SERPAPI_API_KEY.strip())
         print(f"[RAG] SERPAPI configured: {serpapi_configured}")
@@ -466,20 +714,46 @@ class RAGService:
         if serpapi_configured:
             engines.insert(0, "serpapi")
 
-        for engine in engines:
-            results = await cls._search_with_retry(engine, query)
-            if results:
-                print(f"[RAG] Engine '{engine}' returned {len(results)} results.")
-                cls._set_cached_results(query, results)
-                return results
+        alternative_query = cls._build_alternative_query(query)
+        query_attempts = [query]
+        if alternative_query and alternative_query.lower() != str(query or "").lower():
+            query_attempts.append(alternative_query)
+
+        for attempt_index, attempt_query in enumerate(query_attempts, start=1):
+            print(f"[RAG] Query attempt {attempt_index}/{len(query_attempts)}: '{attempt_query}'")
+
+            for engine in engines:
+                results = await cls._search_with_retry(engine, attempt_query)
+                if not results:
+                    continue
+
+                filtered_results = cls._filter_results_for_query(query, results)
+                relevance_ratio = len(filtered_results) / max(1, len(results))
+
+                if filtered_results and (relevance_ratio >= 0.34 or len(filtered_results) >= 2):
+                    print(
+                        f"[RAG] Engine '{engine}' returned {len(results)} results; "
+                        f"kept {len(filtered_results)} query-specific results."
+                    )
+                    cls._set_cached_results(query, filtered_results)
+                    return filtered_results
+
+                print(
+                    f"[RAG] Engine '{engine}' results were low-relevance "
+                    f"(kept {len(filtered_results)}/{len(results)})."
+                )
 
         cached_results = cls._get_cached_results(query)
         if cached_results:
-            print("[RAG] Using cached search results fallback.")
-            return cached_results
+            filtered_cached = cls._filter_results_for_query(query, cached_results)
+            if filtered_cached:
+                print("[RAG] Using exact-query cached results fallback.")
+                return filtered_cached
 
         print("[RAG] All search engines failed. Using mock fallback results.")
-        mock_results = cls._normalize_results(cls._build_mock_results(query))
+        mock_results = cls._filter_results_for_query(query, cls._build_mock_results(query))
+        if not mock_results:
+            mock_results = cls._normalize_results(cls._build_mock_results(query))
         cls._set_cached_results(query, mock_results)
         return mock_results
 

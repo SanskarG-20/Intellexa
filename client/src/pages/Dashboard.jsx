@@ -511,7 +511,7 @@ function buildStructuredPayload(data) {
   const autopsy = extractAutopsyPayload(data);
   const perspectives = extractPerspectivePayload(data);
   const reframedQuery = extractReframedQuery(data);
-  const sources = extractSources(data);
+  const sources = extractSources(data).map((source) => ({ ...source }));
   const searchUsed = detectSearchUsed(data, sources);
   const ethicalCheck = isPlainObject(data?.ethical_check)
     ? data.ethical_check
@@ -1120,6 +1120,7 @@ function Dashboard() {
       setIsSearchLikely(isLikelySearchIntent(nextMessage));
       setErrorMessage("");
       setVoiceStatusMessage("");
+      setActiveInsightMessageId(null);
       if (clearInput) {
         setInputValue("");
       }
@@ -1141,8 +1142,14 @@ function Dashboard() {
         }
 
         const structuredPayload = buildStructuredPayload(data);
-        const aiText = structuredPayload.answer || "I could not generate a response just now.";
-        const assistantMessage = createChatMessage("assistant", aiText, structuredPayload, {
+        const isolatedStructuredPayload = {
+          ...structuredPayload,
+          sources: Array.isArray(structuredPayload.sources)
+            ? structuredPayload.sources.map((source) => ({ ...source }))
+            : [],
+        };
+        const aiText = isolatedStructuredPayload.answer || "I could not generate a response just now.";
+        const assistantMessage = createChatMessage("assistant", aiText, isolatedStructuredPayload, {
           animate: animateResponse,
         });
 
@@ -1176,9 +1183,9 @@ function Dashboard() {
             let preferredChatId = activeChatId;
 
             if (activeChatId) {
-              await updateChatById(activeChatId, userId, nextMessage, aiText, structuredPayload);
+              await updateChatById(activeChatId, userId, nextMessage, aiText, isolatedStructuredPayload);
             } else {
-              const saved = await saveMessage(userId, nextMessage, aiText, structuredPayload);
+              const saved = await saveMessage(userId, nextMessage, aiText, isolatedStructuredPayload);
               preferredChatId = saved?.id || null;
             }
 
@@ -1197,11 +1204,13 @@ function Dashboard() {
           interrupted: false,
           answer: aiText,
           fullAnswer: aiText,
-          structuredPayload,
-          searchUsed: Boolean(structuredPayload?.searchUsed),
-          sources: Array.isArray(structuredPayload?.sources) ? structuredPayload.sources : [],
-          explanationItems: Array.isArray(structuredPayload?.explanationItems)
-            ? structuredPayload.explanationItems
+          structuredPayload: isolatedStructuredPayload,
+          searchUsed: Boolean(isolatedStructuredPayload?.searchUsed),
+          sources: Array.isArray(isolatedStructuredPayload?.sources)
+            ? isolatedStructuredPayload.sources
+            : [],
+          explanationItems: Array.isArray(isolatedStructuredPayload?.explanationItems)
+            ? isolatedStructuredPayload.explanationItems
             : [],
         };
       } catch (error) {

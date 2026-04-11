@@ -70,12 +70,19 @@ class ChatService:
 
         if rag_context:
             system_prompt += f"{rag_context}\n\n"
+            system_prompt += (
+                "Retrieval rules:\n"
+                "- You MUST answer ONLY using the provided search results.\n"
+                "- If relevant information exists in those results, do NOT claim there is no information available.\n"
+                "- If results are insufficient or irrelevant, explicitly say information is insufficient.\n\n"
+            )
 
         if force_web_grounded and rag_context:
             system_prompt += (
                 "Answering rules for this request:\n"
                 "- Use only the latest verified information provided above.\n"
                 "- Do not invent or assume facts not present in that information.\n"
+                "- If information is sufficient, provide a direct answer and cite evidence from the results.\n"
                 "- If information is insufficient, explicitly say what is missing.\n\n"
             )
 
@@ -103,6 +110,48 @@ class ChatService:
         overlap = sum(1 for token in answer_tokens if token in web_tokens)
         overlap_ratio = overlap / max(1, len(answer_tokens))
         return overlap >= 3 and overlap_ratio >= 0.10
+
+    @staticmethod
+    def _looks_like_no_info_answer(answer: str) -> bool:
+        text = " ".join(str(answer or "").lower().split())
+        if not text:
+            return True
+
+        no_info_markers = (
+            "no information available",
+            "don't have enough information",
+            "do not have enough information",
+            "cannot determine",
+            "can't determine",
+            "insufficient information",
+            "not enough information",
+            "unable to find",
+        )
+        return any(marker in text for marker in no_info_markers)
+
+    @staticmethod
+    def _build_source_backed_answer(query: str, web_data: List[Dict[str, str]]) -> str:
+        if not web_data:
+            return "I could not verify reliable web data right now. Please try again shortly."
+
+        key_points = []
+        for item in web_data[:2]:
+            title = " ".join(str(item.get("title", "")).split())
+            snippet = " ".join(str(item.get("snippet", "")).split())
+            if not snippet:
+                continue
+            key_points.append(f"{title}: {snippet}")
+
+        if not key_points:
+            return (
+                f"I found recent sources for '{query}', but they did not contain enough detail "
+                "to provide a reliable direct answer."
+            )
+
+        return (
+            f"Based on recent sources about '{query}', here is what is available: "
+            + " ".join(key_points)
+        )
 
     @classmethod
     def _estimate_context_relevance(cls, message: str, context: str) -> float:
@@ -178,6 +227,15 @@ class ChatService:
         if force_search:
             print(f"[RAG][Search] Triggered for query: '{query_for_reasoning}'")
             web_data = await rag_service.search_web(query_for_reasoning)
+            web_data = [
+                {
+                    "title": str(item.get("title", "")),
+                    "snippet": str(item.get("snippet", "")),
+                    "url": str(item.get("url", "")),
+                }
+                for item in (web_data or [])
+                if isinstance(item, dict)
+            ]
             search_used = bool(web_data)
             print(f"[RAG][Search] Result count: {len(web_data)}")
 
@@ -206,6 +264,22 @@ class ChatService:
                 system_prompt=system_prompt,
             )
 
+            if force_search and web_data and ChatService._looks_like_no_info_answer(main_answer):
+                print("[RAG][Validation] No-info answer detected despite source availability. Retrying.")
+                no_info_recovery_prompt = (
+                    ChatService._build_main_system_prompt(
+                        context=context,
+                        rag_context=rag_context,
+                        force_web_grounded=True,
+                    )
+                    + "IMPORTANT: Relevant search results are already provided. "
+                    + "Give a direct answer using those results. Do not reply with no information available."
+                )
+                main_answer = await llama_service.get_ai_response(
+                    query_for_reasoning,
+                    system_prompt=no_info_recovery_prompt,
+                )
+
             if force_search and web_data:
                 is_grounded = ChatService._is_answer_grounded(main_answer, web_data)
                 print(f"[RAG][Validation] grounded={is_grounded}")
@@ -229,8 +303,18 @@ class ChatService:
                     print(f"[RAG][Validation] grounded_after_retry={is_grounded}")
 
                     if not is_grounded:
-                        print("[RAG][Validation] Retry mismatch; returning safe fallback response.")
-                        main_answer = ChatService.REALTIME_FALLBACK_MESSAGE
+                        print("[RAG][Validation] Retry mismatch; constructing source-backed fallback answer.")
+                        main_answer = ChatService._build_source_backed_answer(
+                            query_for_reasoning,
+                            web_data,
+                        )
+
+            if force_search and web_data and ChatService._looks_like_no_info_answer(main_answer):
+                print("[RAG][Validation] Final answer still no-info; constructing source-backed fallback answer.")
+                main_answer = ChatService._build_source_backed_answer(
+                    query_for_reasoning,
+                    web_data,
+                )
 
         print(f"[RAG][FinalAnswer] {str(main_answer)[:260]}")
 
