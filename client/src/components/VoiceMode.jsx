@@ -11,6 +11,21 @@ const LISTEN_RESTART_MS = 420;
 const MIN_TRANSCRIPT_WORDS = 2;
 const MIN_TRANSCRIPT_CHARS = 6;
 const SHORT_RESPONSE_MAX_CHARS = 220;
+const MIN_INTERRUPT_WORDS = 3;
+
+const REALTIME_KEYWORDS = [
+  "current",
+  "latest",
+  "today",
+  "now",
+  "who is",
+  "president",
+  "news",
+  "sports",
+  "politics",
+  "weather",
+  "match",
+];
 
 function isFatalRecognitionError(message) {
   const value = String(message || "").toLowerCase();
@@ -71,7 +86,16 @@ function generateShortResponse(fullAnswer) {
   return compact ? `${compact}...` : cleaned.slice(0, SHORT_RESPONSE_MAX_CHARS).trim();
 }
 
-function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
+function isRealtimeQuery(query) {
+  const value = normalizeVoiceText(query).toLowerCase();
+  if (!value) {
+    return false;
+  }
+
+  return REALTIME_KEYWORDS.some((keyword) => value.includes(keyword));
+}
+
+function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode, onInterruptActiveResponse }) {
   const {
     isSupported,
     isListening,
@@ -165,10 +189,18 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
       speechInterruptedRef.current = false;
       setModeError("");
       setIsThinking(true);
-      setStatusText("Thinking...");
+      const realtimeIntent = isRealtimeQuery(utterance);
+      setStatusText(realtimeIntent ? "Let me check the latest information..." : "Thinking...");
       stopListening();
 
-      const result = await onSubmitVoiceQuery(utterance);
+      // Keep the mic active during search so the user can interrupt naturally.
+      clearError();
+      resetTranscript();
+      startListening();
+
+      const result = await onSubmitVoiceQuery(utterance, {
+        isRealtimeQuery: realtimeIntent,
+      });
 
       if (!activeRef.current) {
         return;
@@ -204,7 +236,17 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
         return;
       }
 
-      const shortResponse = generateShortResponse(fullAnswerText);
+      const usedSources = Boolean(result?.searchUsed) || Boolean(result?.sources?.length);
+      let shortResponse = generateShortResponse(fullAnswerText);
+
+      if (realtimeIntent && usedSources) {
+        const normalizedShort = shortResponse.toLowerCase();
+        if (!normalizedShort.startsWith("according to recent sources")) {
+          const first = shortResponse.charAt(0);
+          const rest = shortResponse.slice(1);
+          shortResponse = `According to recent sources, ${first.toLowerCase()}${rest}`;
+        }
+      }
 
       if (!isVoiceOutputEnabled || !isSpeechOutputSupported) {
         setStatusText("Listening...");
@@ -269,6 +311,7 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
       clearError,
       isSpeechOutputSupported,
       isVoiceOutputEnabled,
+      onInterruptActiveResponse,
       onSubmitVoiceQuery,
       resetTranscript,
       scheduleListeningRestart,
@@ -354,7 +397,7 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
     const normalizedDetected = detected.toLowerCase();
     const words = normalizedDetected.split(/\s+/).filter(Boolean);
 
-    if (words.length < 3) {
+    if (words.length < MIN_INTERRUPT_WORDS) {
       return;
     }
 
@@ -368,6 +411,45 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode }) {
     setIsSpeaking(false);
     setStatusText("Listening...");
   }, [isListening, isSpeaking, liveTranscript]);
+
+  useEffect(() => {
+    if (!isThinking || !isListening) {
+      return;
+    }
+
+    const detected = normalizeVoiceText(liveTranscript).toLowerCase();
+    if (!detected) {
+      return;
+    }
+
+    const words = detected.split(/\s+/).filter(Boolean);
+    if (words.length < MIN_INTERRUPT_WORDS) {
+      return;
+    }
+
+    if (lastSpokenTextRef.current && lastSpokenTextRef.current.includes(detected)) {
+      return;
+    }
+
+    if (typeof onInterruptActiveResponse === "function") {
+      onInterruptActiveResponse();
+    }
+
+    speechInterruptedRef.current = true;
+    setIsThinking(false);
+    setStatusText("Listening...");
+    clearError();
+    resetTranscript();
+    scheduleListeningRestart(220);
+  }, [
+    clearError,
+    isListening,
+    isThinking,
+    liveTranscript,
+    onInterruptActiveResponse,
+    resetTranscript,
+    scheduleListeningRestart,
+  ]);
 
   useEffect(() => {
     if (isThinking) {

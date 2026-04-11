@@ -22,6 +22,7 @@ class ChatService:
     """
 
     REALTIME_FALLBACK_MESSAGE = "I couldn't fetch real-time data right now, please try again."
+    VOICE_REALTIME_FALLBACK_MESSAGE = "I couldn't fetch the latest info right now, but here's what I know."
     GROUNDING_STOPWORDS = {
         "about",
         "above",
@@ -140,7 +141,7 @@ class ChatService:
         return "low"
 
     @staticmethod
-    async def process_chat(user_id: str, message: str) -> dict:
+    async def process_chat(user_id: str, message: str, voice_mode: bool = False) -> dict:
         """
         Main workflow for processing a chat message.
         """
@@ -159,12 +160,15 @@ class ChatService:
         # 4. Real-time detection + forced search (critical path)
         autopsy_needs_search = bool((autopsy_res or {}).get("needs_search", False))
         realtime_needs_search = rag_service.is_realtime_query(query_for_reasoning)
-        force_search = autopsy_needs_search or realtime_needs_search
+        voice_realtime_strict = bool(voice_mode and realtime_needs_search)
+        force_search = autopsy_needs_search or realtime_needs_search or voice_realtime_strict
         print(
             "[RAG][RealtimeGate] "
             f"triggered={force_search} "
             f"autopsy_needs_search={autopsy_needs_search} "
-            f"realtime_detected={realtime_needs_search}"
+            f"realtime_detected={realtime_needs_search} "
+            f"voice_mode={voice_mode} "
+            f"voice_realtime_strict={voice_realtime_strict}"
         )
 
         web_data: List[Dict[str, str]] = []
@@ -184,7 +188,11 @@ class ChatService:
 
             if not web_data:
                 print("[RAG][Search] Forced search returned empty data even after retries/fallbacks.")
-                print("[RAG][Search] Continuing without web grounding as last-resort safety path.")
+                if voice_realtime_strict:
+                    print("[RAG][Search] Voice realtime strict mode active; using voice-safe fallback response.")
+                    main_answer = ChatService.VOICE_REALTIME_FALLBACK_MESSAGE
+                else:
+                    print("[RAG][Search] Continuing without web grounding as last-resort safety path.")
 
         if not main_answer:
             rag_context = rag_service.construct_rag_context(web_data) if web_data else ""
@@ -280,6 +288,7 @@ class ChatService:
             "confidence": confidence,
             "search_used": search_used,
             "sources": web_data,
+            "full_answer": main_answer,
             "trust_evaluation": {
                 "trust_score": trust_score,
                 "confidence": confidence,

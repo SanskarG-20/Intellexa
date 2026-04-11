@@ -394,6 +394,10 @@ function renderFormattedAnswer(text, sources = []) {
 }
 
 function extractMainAnswer(data) {
+  if (typeof data?.full_answer === "string" && data.full_answer.trim()) {
+    return data.full_answer.trim();
+  }
+
   if (typeof data?.final_answer === "string" && data.final_answer.trim()) {
     return data.final_answer.trim();
   }
@@ -1095,6 +1099,7 @@ function Dashboard() {
       const appendInterruptMessage = options?.appendInterruptMessage ?? true;
       const animateResponse = options?.animateResponse ?? true;
       const clearInput = options?.clearInput ?? true;
+      const voiceMode = Boolean(options?.voiceMode);
 
       if (!nextMessage || isResponseInterruptible) {
         return {
@@ -1124,6 +1129,7 @@ function Dashboard() {
       try {
         const data = await sendMessage(nextMessage, {
           signal: requestAbortController.signal,
+          voiceMode,
         });
 
         if (userInterruptedRef.current) {
@@ -1192,6 +1198,11 @@ function Dashboard() {
           answer: aiText,
           fullAnswer: aiText,
           structuredPayload,
+          searchUsed: Boolean(structuredPayload?.searchUsed),
+          sources: Array.isArray(structuredPayload?.sources) ? structuredPayload.sources : [],
+          explanationItems: Array.isArray(structuredPayload?.explanationItems)
+            ? structuredPayload.explanationItems
+            : [],
         };
       } catch (error) {
         const rawMessage = error instanceof Error ? error.message : "";
@@ -1366,6 +1377,7 @@ function Dashboard() {
         appendInterruptMessage: false,
         animateResponse: false,
         clearInput: false,
+        voiceMode: true,
       });
     },
     [submitMessage]
@@ -1792,6 +1804,7 @@ function Dashboard() {
           <VoiceMode
             onSubmitVoiceQuery={handleVoiceModeSubmit}
             onStopVoiceMode={handleStopVoiceMode}
+            onInterruptActiveResponse={handleInterruptResponse}
           />
         ) : (
         <div className="dashboard-chat-layout">

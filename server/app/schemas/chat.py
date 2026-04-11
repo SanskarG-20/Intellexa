@@ -7,6 +7,10 @@ class ChatRequest(BaseModel):
     Schema for incoming chat messages.
     """
     message: str = Field(..., description="The user's message to the chatbot.")
+    voice_mode: bool = Field(
+        False,
+        description="Marks requests originating from voice conversation mode.",
+    )
 
 class ChatResponse(BaseModel):
     """
@@ -21,6 +25,7 @@ class ChatResponse(BaseModel):
     confidence: Optional[str] = Field(None, description="Confidence label: low, medium, or high.")
     search_used: Optional[bool] = Field(None, description="Whether web search was used before answer generation.")
     sources: Optional[List[dict]] = Field(None, description="Raw web search results used for grounding.")
+    full_answer: Optional[str] = Field(None, description="Compatibility field containing the full detailed answer.")
 
     # Additional compatibility fields used by other server variants.
     trust_evaluation: Optional[dict] = Field(None, description="Compatibility trust object.")

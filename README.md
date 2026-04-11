@@ -46,6 +46,9 @@ Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluate
 - Reframed Question banner shown above responses when reframing is triggered.
 - Stop button to interrupt in-flight generation and typing animation.
 - Dedicated analysis and source-aware output views.
+- Voice Conversation Mode with continuous listening and natural 5-second silence detection.
+- Voice-mode realtime guardrail: for realtime queries, web search is forced and answers are source-grounded.
+- Dual-response behavior in voice mode: short spoken reply, full answer plus sources/explanation stored in history.
 
 ## System Architecture
 Intellexa uses a staged architecture that combines agentic decisioning with retrieval-aware reasoning.
@@ -82,6 +85,14 @@ flowchart LR
 9. Explanation and trust metrics are computed.
 10. Final response is returned with sources; when reframing is used, UI shows Reframed Question above the answer.
 11. Conversation history is stored in Supabase.
+
+### Voice Mode Realtime Flow
+1. User speaks and Intellexa waits for a natural pause before submitting.
+2. In voice mode, realtime-intent queries are marked with `voice_mode=true`.
+3. Backend enforces web search for realtime voice queries and injects latest verified context.
+4. Assistant speaks a concise 1 to 2 sentence reply for low-latency voice UX.
+5. Full detailed response (including explanation and sources) is still persisted in chat history.
+6. If the user speaks while Intellexa is searching or speaking, the current process is canceled and listening resumes.
 
 ## Tech Stack
 - Frontend: React, Vite, Clerk, Axios

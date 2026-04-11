@@ -19,7 +19,11 @@ async def chat_endpoint(request: ChatRequest):
     """
     try:
         user_id = settings.MOCK_USER_ID
-        result = await chat_service.process_chat(user_id, request.message)
+        result = await chat_service.process_chat(
+            user_id,
+            request.message,
+            voice_mode=bool(request.voice_mode),
+        )
         return ChatResponse(**result)
     except (LlamaService.AIServiceError, EthicsService.AIServiceError, AuditService.AIServiceError, AutopsyService.AIServiceError) as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)

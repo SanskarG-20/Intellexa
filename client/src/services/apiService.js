@@ -22,6 +22,7 @@ function normalizeBackendResponse(data) {
       : rootPayload;
 
   const finalAnswer = payload.final_answer ?? payload.finalResponse ?? payload.output ?? null;
+  const fullAnswer = payload.full_answer ?? payload.response ?? finalAnswer ?? null;
   const sources =
     payload.sources ??
     payload.citations ??
@@ -46,6 +47,7 @@ function normalizeBackendResponse(data) {
   return {
     response: payload.response ?? "",
     final_answer: finalAnswer,
+    full_answer: typeof fullAnswer === "string" ? fullAnswer : "",
     answer: payload.answer ?? null,
     sources,
     citations: payload.citations ?? null,
@@ -89,7 +91,7 @@ async function getAuthorizationHeader(getToken, { forceRefresh = false } = {}) {
   return `Bearer ${token}`;
 }
 
-async function postChatMessage(message, authorization, signal) {
+async function postChatMessage(message, authorization, signal, requestMeta = {}) {
   const requestConfig = {};
 
   if (authorization) {
@@ -106,6 +108,7 @@ async function postChatMessage(message, authorization, signal) {
     "/v1/chat",
     {
       message: message.trim(),
+      voice_mode: Boolean(requestMeta?.voiceMode),
     },
     requestConfig
   );
@@ -119,11 +122,14 @@ export async function sendMessage(message, getToken, options = {}) {
   }
 
   const signal = options?.signal;
+  const requestMeta = {
+    voiceMode: Boolean(options?.voiceMode || options?.requestMeta?.voiceMode),
+  };
 
   let authorization = await getAuthorizationHeader(getToken);
 
   try {
-    const data = await postChatMessage(message, authorization, signal);
+    const data = await postChatMessage(message, authorization, signal, requestMeta);
     return normalizeBackendResponse(data);
   } catch (error) {
     if (axios.isAxiosError(error)) {
@@ -150,7 +156,12 @@ export async function sendMessage(message, getToken, options = {}) {
           }
 
           authorization = refreshedAuthorization;
-          const retryData = await postChatMessage(message, refreshedAuthorization, signal);
+          const retryData = await postChatMessage(
+            message,
+            refreshedAuthorization,
+            signal,
+            requestMeta
+          );
           return normalizeBackendResponse(retryData);
         } catch {
           throw new Error(
