@@ -175,12 +175,8 @@ Intellexa/
 |- vercel.json
 ```
 
-## Demo and Screenshots
+## Demo
 - Live Demo: https://intellexa-lac.vercel.app/
-- Screenshots placeholder:
-  - docs/screenshots/dashboard.png
-  - docs/screenshots/chat-with-sources.png
-  - docs/screenshots/analysis-panel.png
 
 ## Future Improvements
 - Full Clerk user ID propagation into backend persistence path.
@@ -188,6 +184,3 @@ Intellexa/
 - Automated evaluation suite for bias, factuality, and citation quality.
 - Multi-tenant model routing and cost-aware fallback policy.
 - Human review workflows for high-risk prompts.
-
-## License
-MIT.
