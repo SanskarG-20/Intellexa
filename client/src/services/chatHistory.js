@@ -3,11 +3,16 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim();
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
 const ANALYSIS_CACHE_KEY = "intellexa_chat_analysis_v1";
+const LOCAL_CHAT_CACHE_KEY = "intellexa_local_chat_history_v1";
 
 const supabase =
   SUPABASE_URL && SUPABASE_ANON_KEY
     ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
+
+export function isCloudHistoryEnabled() {
+  return Boolean(supabase);
+}
 
 function ensureSupabaseClient() {
   if (!supabase) {
@@ -90,6 +95,88 @@ function removeCachedStructuredPayload(chatId) {
   writeAnalysisCache(cache);
 }
 
+function toTimestamp(value) {
+  const time = new Date(value || "").getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function sortChatsByDateDesc(items) {
+  return [...items].sort((a, b) => toTimestamp(b.created_at) - toTimestamp(a.created_at));
+}
+
+function generateLocalChatId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `local_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function readLocalChats() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_CHAT_CACHE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map(normalizeConversationRow)
+      .filter(Boolean)
+      .filter((item) => item.id);
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalChats(chats) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const safeChats = Array.isArray(chats)
+    ? chats
+        .map((chat) => normalizeConversationRow(chat))
+        .filter(Boolean)
+        .filter((item) => item.id)
+    : [];
+
+  try {
+    window.localStorage.setItem(LOCAL_CHAT_CACHE_KEY, JSON.stringify(safeChats));
+  } catch {
+    // Ignore storage quota/permission errors.
+  }
+}
+
+function updateLocalStructuredPayload(chatId, structuredPayload) {
+  const safeChatId = String(chatId || "").trim();
+  const safeStructured = sanitizeStructuredPayload(structuredPayload);
+
+  if (!safeChatId || !safeStructured) {
+    return;
+  }
+
+  const chats = readLocalChats();
+  const nextChats = chats.map((chat) =>
+    chat.id === safeChatId
+      ? {
+          ...chat,
+          structured_payload: safeStructured,
+        }
+      : chat
+  );
+
+  writeLocalChats(nextChats);
+}
+
 export async function persistStructuredPayloadForChat(chatId, structuredPayload) {
   const safeChatId = String(chatId || "").trim();
   const safeStructured = sanitizeStructuredPayload(structuredPayload);
@@ -101,6 +188,11 @@ export async function persistStructuredPayloadForChat(chatId, structuredPayload)
   const cache = readAnalysisCache();
   cache[safeChatId] = safeStructured;
   writeAnalysisCache(cache);
+
+  if (!supabase) {
+    updateLocalStructuredPayload(safeChatId, safeStructured);
+    return true;
+  }
 
   const client = ensureSupabaseClient();
 
@@ -154,8 +246,15 @@ function ensureUserId(userId) {
 }
 
 export async function getUserChats(userId) {
-  const client = ensureSupabaseClient();
   const safeUserId = ensureUserId(userId);
+
+  if (!supabase) {
+    return sortChatsByDateDesc(
+      readLocalChats().filter((item) => item.user_id === safeUserId)
+    );
+  }
+
+  const client = ensureSupabaseClient();
 
   const { data, error } = await runConversationSelect((columns) =>
     client
@@ -176,7 +275,6 @@ export async function getUserChats(userId) {
 }
 
 export async function saveMessage(userId, message, response, structuredPayload = null) {
-  const client = ensureSupabaseClient();
   const safeUserId = ensureUserId(userId);
 
   const safeMessage = String(message || "").trim();
@@ -185,6 +283,30 @@ export async function saveMessage(userId, message, response, structuredPayload =
   if (!safeMessage) {
     throw new Error("saveMessage requires a non-empty user message.");
   }
+
+  if (!supabase) {
+    const nextLocalChat = normalizeConversationRow({
+      id: generateLocalChatId(),
+      user_id: safeUserId,
+      message: safeMessage,
+      response: safeResponse,
+      created_at: new Date().toISOString(),
+      structured_payload: sanitizeStructuredPayload(structuredPayload),
+    });
+
+    const existing = readLocalChats().filter((chat) => chat.user_id === safeUserId);
+    writeLocalChats(sortChatsByDateDesc([nextLocalChat, ...existing]));
+
+    if (nextLocalChat?.id && structuredPayload) {
+      const cache = readAnalysisCache();
+      cache[nextLocalChat.id] = sanitizeStructuredPayload(structuredPayload);
+      writeAnalysisCache(cache);
+    }
+
+    return nextLocalChat;
+  }
+
+  const client = ensureSupabaseClient();
 
   const payload = {
     user_id: safeUserId,
@@ -213,12 +335,17 @@ export async function saveMessage(userId, message, response, structuredPayload =
 }
 
 export async function getChatById(chatId) {
-  const client = ensureSupabaseClient();
   const safeChatId = String(chatId || "").trim();
 
   if (!safeChatId) {
     throw new Error("A valid chatId is required.");
   }
+
+  if (!supabase) {
+    return readLocalChats().find((item) => item.id === safeChatId) || null;
+  }
+
+  const client = ensureSupabaseClient();
 
   const { data, error } = await runConversationSelect((columns) =>
     client
@@ -236,13 +363,24 @@ export async function getChatById(chatId) {
 }
 
 export async function deleteChatById(chatId, userId) {
-  const client = ensureSupabaseClient();
   const safeChatId = String(chatId || "").trim();
   const safeUserId = ensureUserId(userId);
 
   if (!safeChatId) {
     throw new Error("A valid chatId is required.");
   }
+
+  if (!supabase) {
+    const chats = readLocalChats();
+    const nextChats = chats.filter(
+      (item) => !(item.id === safeChatId && item.user_id === safeUserId)
+    );
+    writeLocalChats(nextChats);
+    removeCachedStructuredPayload(safeChatId);
+    return;
+  }
+
+  const client = ensureSupabaseClient();
 
   const { error } = await client
     .from("conversations")

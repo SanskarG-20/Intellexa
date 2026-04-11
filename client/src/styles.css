@@ -1893,6 +1893,16 @@ button {
   padding: 12px;
 }
 
+.chat-sidebar-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(220, 236, 255, 0.76);
+  background: rgba(123, 111, 255, 0.08);
+}
+
 .chat-sidebar-head-row {
   display: flex;
   align-items: flex-start;

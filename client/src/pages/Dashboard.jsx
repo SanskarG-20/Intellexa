@@ -6,6 +6,7 @@ import {
   deleteChatById,
   getChatById,
   getUserChats,
+  isCloudHistoryEnabled,
   persistStructuredPayloadForChat,
   saveMessage,
 } from "../services/chatHistory";
@@ -838,6 +839,7 @@ function Dashboard() {
   const loadingStatusMessages = isSearchLikely
     ? SEARCH_AWARE_STATUS_MESSAGES
     : THINKING_STATUS_MESSAGES;
+  const cloudHistoryEnabled = isCloudHistoryEnabled();
 
   const loadHistory = useCallback(
     async (preferredChatId = null) => {
@@ -1421,6 +1423,7 @@ function Dashboard() {
             activeChatId={activeChatId}
             isLoading={isHistoryLoading}
             errorMessage={historyErrorMessage}
+            isCloudHistoryEnabled={cloudHistoryEnabled}
             onSelectChat={handleSelectHistoryItem}
             onNewChat={handleStartNewChat}
             onDeleteChat={handleDeleteChat}

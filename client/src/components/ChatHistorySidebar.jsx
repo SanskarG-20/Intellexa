@@ -34,6 +34,7 @@ function ChatHistorySidebar({
   activeChatId,
   isLoading,
   errorMessage,
+  isCloudHistoryEnabled,
   onSelectChat,
   onNewChat,
   onDeleteChat,
@@ -59,6 +60,12 @@ function ChatHistorySidebar({
           </button>
         </div>
       </header>
+
+      {!isCloudHistoryEnabled ? (
+        <p className="chat-sidebar-note" role="status">
+          Cloud history is unavailable. Chats are being stored locally in this browser.
+        </p>
+      ) : null}
 
       <div className="chat-sidebar-list" role="list">
         {isLoading ? (
