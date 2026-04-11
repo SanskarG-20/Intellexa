@@ -36,8 +36,10 @@ function ChatHistorySidebar({
   errorMessage,
   onSelectChat,
   onNewChat,
+  onDeleteChat,
   isNewChatDisabled,
   isInteractionDisabled,
+  deletingChatId,
 }) {
   return (
     <aside className="chat-sidebar" aria-label="Chat history sidebar">
@@ -70,19 +72,35 @@ function ChatHistorySidebar({
         {!isLoading
           ? chats.map((chat) => {
               const isActive = chat.id === activeChatId;
+              const isDeleting = deletingChatId === chat.id;
 
               return (
-                <button
+                <div
                   key={chat.id}
-                  type="button"
                   role="listitem"
-                  className={`chat-sidebar-item ${isActive ? "is-active" : ""}`}
-                  onClick={() => onSelectChat(chat.id)}
-                  disabled={isInteractionDisabled}
+                  className={`chat-sidebar-item-shell ${isActive ? "is-active" : ""}`}
                 >
-                  <span className="chat-sidebar-preview">{toPreviewText(chat.message)}</span>
-                  <span className="chat-sidebar-time">{toTimestampLabel(chat.created_at)}</span>
-                </button>
+                  <button
+                    type="button"
+                    className="chat-sidebar-item"
+                    onClick={() => onSelectChat(chat.id)}
+                    disabled={isInteractionDisabled || isDeleting}
+                  >
+                    <span className="chat-sidebar-preview">{toPreviewText(chat.message)}</span>
+                    <span className="chat-sidebar-time">{toTimestampLabel(chat.created_at)}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="chat-sidebar-delete-button"
+                    onClick={() => onDeleteChat(chat.id)}
+                    disabled={isInteractionDisabled || isDeleting}
+                    aria-label="Delete chat"
+                    title="Delete chat"
+                  >
+                    {isDeleting ? "..." : "x"}
+                  </button>
+                </div>
               );
             })
           : null}

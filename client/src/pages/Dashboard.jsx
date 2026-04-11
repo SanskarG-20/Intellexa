@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ChatHistorySidebar from "../components/ChatHistorySidebar";
 import { useApiService } from "../services/apiService";
 import {
+  deleteChatById,
   getChatById,
   getUserChats,
   persistStructuredPayloadForChat,
@@ -28,6 +29,7 @@ const SEARCH_AWARE_STATUS_MESSAGES = [
 ];
 
 const AUTO_SCROLL_THRESHOLD_PX = 88;
+const PROGRAMMATIC_SCROLL_LOCK_MS = 260;
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -811,6 +813,7 @@ function Dashboard() {
   const [isSearchLikely, setIsSearchLikely] = useState(false);
   const [activeInsightMessageId, setActiveInsightMessageId] = useState(null);
   const [insightLoadingMessageId, setInsightLoadingMessageId] = useState(null);
+  const [deletingChatId, setDeletingChatId] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [thinkingStepIndex, setThinkingStepIndex] = useState(0);
   const [typingState, setTypingState] = useState({
@@ -819,10 +822,12 @@ function Dashboard() {
     visibleLength: 0,
   });
   const historyRef = useRef(null);
+  const messagesEndRef = useRef(null);
   const typingRafRef = useRef(null);
   const typedMessageIdsRef = useRef(new Set());
-  const autoScrollEnabledRef = useRef(true);
-  const previousMessageCountRef = useRef(messages.length);
+  const shouldAutoScrollRef = useRef(true);
+  const autoScrollRafRef = useRef(null);
+  const programmaticScrollLockUntilRef = useRef(0);
 
   const activeInsightMessage = activeInsightMessageId
     ? messages.find(
@@ -896,11 +901,29 @@ function Dashboard() {
     });
   }, []);
 
-  const scrollToChatBottom = useCallback((behavior = "auto") => {
+  const handleHistoryScroll = useCallback(() => {
     const historyNode = historyRef.current;
     if (!historyNode) {
       return;
     }
+
+    if (window.performance.now() < programmaticScrollLockUntilRef.current) {
+      return;
+    }
+
+    const distanceFromBottom =
+      historyNode.scrollHeight - historyNode.scrollTop - historyNode.clientHeight;
+    shouldAutoScrollRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX;
+  }, []);
+
+  const scrollHistoryToBottom = useCallback((behavior = "auto") => {
+    const historyNode = historyRef.current;
+    if (!historyNode) {
+      return;
+    }
+
+    programmaticScrollLockUntilRef.current =
+      window.performance.now() + (behavior === "smooth" ? PROGRAMMATIC_SCROLL_LOCK_MS + 220 : PROGRAMMATIC_SCROLL_LOCK_MS);
 
     historyNode.scrollTo({
       top: historyNode.scrollHeight,
@@ -908,16 +931,23 @@ function Dashboard() {
     });
   }, []);
 
-  const handleHistoryScroll = useCallback(() => {
-    const historyNode = historyRef.current;
-    if (!historyNode) {
-      return;
-    }
+  const queueAutoScroll = useCallback(
+    (behavior = "auto") => {
+      if (!shouldAutoScrollRef.current) {
+        return;
+      }
 
-    const distanceFromBottom =
-      historyNode.scrollHeight - historyNode.scrollTop - historyNode.clientHeight;
-    autoScrollEnabledRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX;
-  }, []);
+      if (autoScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(autoScrollRafRef.current);
+      }
+
+      autoScrollRafRef.current = window.requestAnimationFrame(() => {
+        autoScrollRafRef.current = null;
+        scrollHistoryToBottom(behavior);
+      });
+    },
+    [scrollHistoryToBottom]
+  );
 
   const startTypingAnimation = useCallback(
     (messageId, fullText) => {
@@ -982,22 +1012,53 @@ function Dashboard() {
   );
 
   useEffect(() => {
-    const hasNewMessage = messages.length !== previousMessageCountRef.current;
-    previousMessageCountRef.current = messages.length;
-
-    if (!autoScrollEnabledRef.current) {
+    if (!shouldAutoScrollRef.current) {
       return undefined;
     }
 
-    const behavior = hasNewMessage ? "smooth" : "auto";
-    const rafId = window.requestAnimationFrame(() => {
-      scrollToChatBottom(behavior);
+    const behavior = isLoading || Boolean(typingState.messageId) ? "auto" : "smooth";
+    queueAutoScroll(behavior);
+    return undefined;
+  }, [messages.length, typingState.visibleLength, isLoading, typingState.messageId, queueAutoScroll]);
+
+  useEffect(() => {
+    const historyNode = historyRef.current;
+    if (!historyNode) {
+      return undefined;
+    }
+
+    const mutationObserver = new MutationObserver(() => {
+      queueAutoScroll("auto");
     });
 
-    return () => {
-      window.cancelAnimationFrame(rafId);
+    mutationObserver.observe(historyNode, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    let resizeObserver = null;
+    if (typeof window.ResizeObserver !== "undefined") {
+      resizeObserver = new window.ResizeObserver(() => {
+        queueAutoScroll("auto");
+      });
+      resizeObserver.observe(historyNode);
+    }
+
+    const handleViewportResize = () => {
+      queueAutoScroll("auto");
     };
-  }, [messages.length, isLoading, typingState.visibleLength, scrollToChatBottom]);
+
+    window.addEventListener("resize", handleViewportResize);
+
+    return () => {
+      mutationObserver.disconnect();
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      window.removeEventListener("resize", handleViewportResize);
+    };
+  }, [queueAutoScroll]);
 
   useEffect(() => {
     if (isLoading) {
@@ -1045,6 +1106,10 @@ function Dashboard() {
       if (typingRafRef.current !== null) {
         window.cancelAnimationFrame(typingRafRef.current);
       }
+
+      if (autoScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(autoScrollRafRef.current);
+      }
     };
   }, []);
 
@@ -1071,7 +1136,7 @@ function Dashboard() {
     setIsSearchLikely(false);
     setActiveChatId(chatId);
     setActiveInsightMessageId(null);
-    autoScrollEnabledRef.current = true;
+    shouldAutoScrollRef.current = true;
 
     try {
       const chat = await getChatById(chatId);
@@ -1095,7 +1160,7 @@ function Dashboard() {
 
   const handleStartNewChat = useCallback(() => {
     stopTypingAnimation();
-    autoScrollEnabledRef.current = true;
+    shouldAutoScrollRef.current = true;
     typedMessageIdsRef.current = new Set();
 
     setActiveChatId(null);
@@ -1107,6 +1172,51 @@ function Dashboard() {
     setInputValue("");
     setMessages([createChatMessage("assistant", WELCOME_MESSAGE)]);
   }, [stopTypingAnimation]);
+
+  const handleDeleteChat = useCallback(
+    async (chatId) => {
+      const safeChatId = String(chatId || "").trim();
+      if (!safeChatId || !userId || isLoading || insightLoadingMessageId || deletingChatId) {
+        return;
+      }
+
+      const targetChat = chatHistoryItems.find((chat) => chat.id === safeChatId);
+      const previewText = targetChat?.message ? `\"${String(targetChat.message).slice(0, 48)}\"` : "this chat";
+      const shouldDelete = window.confirm(`Delete ${previewText}? This cannot be undone.`);
+      if (!shouldDelete) {
+        return;
+      }
+
+      setDeletingChatId(safeChatId);
+      setHistoryErrorMessage("");
+
+      try {
+        await deleteChatById(safeChatId, userId);
+        setChatHistoryItems((prev) => prev.filter((chat) => chat.id !== safeChatId));
+
+        if (activeChatId === safeChatId) {
+          handleStartNewChat();
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to delete chat.";
+        setHistoryErrorMessage(message);
+      } finally {
+        setDeletingChatId(null);
+      }
+    },
+    [
+      activeChatId,
+      chatHistoryItems,
+      deletingChatId,
+      handleStartNewChat,
+      insightLoadingMessageId,
+      isLoading,
+      userId,
+    ]
+  );
 
   const handleViewInsightsForMessage = useCallback(
     async (messageId, prompt, hasInsights) => {
@@ -1177,7 +1287,7 @@ function Dashboard() {
 
   useEffect(() => {
     stopTypingAnimation();
-    autoScrollEnabledRef.current = true;
+    shouldAutoScrollRef.current = true;
     typedMessageIdsRef.current = new Set();
     setActiveInsightMessageId(null);
     setInsightLoadingMessageId(null);
@@ -1195,7 +1305,7 @@ function Dashboard() {
     if (!nextMessage || isLoading) return;
 
     stopTypingAnimation();
-    autoScrollEnabledRef.current = true;
+    shouldAutoScrollRef.current = true;
     setThinkingStepIndex(0);
     setIsSearchLikely(isLikelySearchIntent(nextMessage));
     setErrorMessage("");
@@ -1264,6 +1374,27 @@ function Dashboard() {
 
   return (
     <section className="dashboard-page">
+      <div className="dashboard-bg-text" aria-hidden="true">
+        <p className="dashboard-bg-line">
+          INTELLEXA // TRUST-FIRST ANALYSIS // CONTEXT MEMORY // MULTI-STEP REASONING // VERIFIED SOURCES
+        </p>
+        <p className="dashboard-bg-line">
+          PERSPECTIVE ENGINE // TRANSPARENT OUTPUT // AGENTIC SEARCH // CONFIDENCE METRICS // USER CONTEXT
+        </p>
+        <p className="dashboard-bg-line">
+          ETHICAL GUARDRAILS // TRACEABLE ANSWERS // REAL-TIME INSIGHTS // ACCOUNTABLE AI WORKSPACE
+        </p>
+        <p className="dashboard-bg-line">
+          DECISION INTELLIGENCE // SEARCH CITATIONS // LONG-FORM REASONING // SAFE RESPONSE LAYERS
+        </p>
+        <p className="dashboard-bg-line">
+          MEMORY-AWARE ASSISTANT // EXPLAINABILITY MODE // SOURCE-DRIVEN OUTPUT // TRUST SIGNALS
+        </p>
+        <p className="dashboard-bg-line">
+          HUMAN-CENTERED AI // CLARITY BY DESIGN // FAST ITERATION LOOP // VERIFIABLE INSIGHT ENGINE
+        </p>
+      </div>
+
       <div className="dashboard-card dashboard-chat-card">
         <header className="dashboard-header">
           <div>
@@ -1292,8 +1423,10 @@ function Dashboard() {
             errorMessage={historyErrorMessage}
             onSelectChat={handleSelectHistoryItem}
             onNewChat={handleStartNewChat}
-            isNewChatDisabled={isLoading}
-            isInteractionDisabled={Boolean(isLoading || insightLoadingMessageId)}
+            onDeleteChat={handleDeleteChat}
+            isNewChatDisabled={isLoading || Boolean(deletingChatId)}
+            isInteractionDisabled={Boolean(isLoading || insightLoadingMessageId || deletingChatId)}
+            deletingChatId={deletingChatId}
           />
 
           <div className="dashboard-chat-main">
@@ -1399,6 +1532,8 @@ function Dashboard() {
                       </div>
                     </article>
                   ) : null}
+
+                  <div ref={messagesEndRef} className="chat-scroll-anchor" aria-hidden="true" />
                 </div>
 
                 <form className="chat-input-form" onSubmit={handleSubmit}>

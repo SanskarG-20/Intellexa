@@ -75,6 +75,21 @@ function readCachedStructuredPayload(chatId) {
   return sanitizeStructuredPayload(cache[safeChatId]);
 }
 
+function removeCachedStructuredPayload(chatId) {
+  const safeChatId = String(chatId || "").trim();
+  if (!safeChatId) {
+    return;
+  }
+
+  const cache = readAnalysisCache();
+  if (!(safeChatId in cache)) {
+    return;
+  }
+
+  delete cache[safeChatId];
+  writeAnalysisCache(cache);
+}
+
 export async function persistStructuredPayloadForChat(chatId, structuredPayload) {
   const safeChatId = String(chatId || "").trim();
   const safeStructured = sanitizeStructuredPayload(structuredPayload);
@@ -218,4 +233,26 @@ export async function getChatById(chatId) {
   }
 
   return normalizeConversationRow(data);
+}
+
+export async function deleteChatById(chatId, userId) {
+  const client = ensureSupabaseClient();
+  const safeChatId = String(chatId || "").trim();
+  const safeUserId = ensureUserId(userId);
+
+  if (!safeChatId) {
+    throw new Error("A valid chatId is required.");
+  }
+
+  const { error } = await client
+    .from("conversations")
+    .delete()
+    .eq("id", safeChatId)
+    .eq("user_id", safeUserId);
+
+  if (error) {
+    throw new Error(error.message || "Failed to delete chat.");
+  }
+
+  removeCachedStructuredPayload(safeChatId);
 }
