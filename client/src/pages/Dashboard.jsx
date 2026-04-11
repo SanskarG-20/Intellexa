@@ -1,7 +1,13 @@
 import { SignOutButton, useUser } from "@clerk/clerk-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ChatHistorySidebar from "../components/ChatHistorySidebar";
+import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useApiService } from "../services/apiService";
+import {
+  isSpeechSynthesisSupported,
+  speakText,
+  stopSpeaking,
+} from "../utils/speechSynthesis";
 import {
   deleteChatById,
   getChatById,
@@ -32,6 +38,7 @@ const SEARCH_AWARE_STATUS_MESSAGES = [
 
 const AUTO_SCROLL_THRESHOLD_PX = 88;
 const PROGRAMMATIC_SCROLL_LOCK_MS = 260;
+const VOICE_AUTO_SUBMIT_ENABLED = true;
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -813,6 +820,17 @@ function buildMessagesFromSavedChat(chat) {
 function Dashboard() {
   const { user } = useUser();
   const { sendMessage } = useApiService();
+  const {
+    isSupported: isSpeechRecognitionSupported,
+    isListening,
+    transcript,
+    interimTranscript,
+    error: speechRecognitionError,
+    startListening,
+    stopListening,
+    resetTranscript,
+    clearError: clearSpeechRecognitionError,
+  } = useSpeechRecognition();
   const userId = typeof user?.id === "string" ? user.id.trim() : "";
   const name =
     user?.firstName ||
@@ -833,6 +851,10 @@ function Dashboard() {
   const [insightLoadingMessageId, setInsightLoadingMessageId] = useState(null);
   const [deletingChatId, setDeletingChatId] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [voiceStatusMessage, setVoiceStatusMessage] = useState("");
+  const [isVoiceOutputEnabled, setIsVoiceOutputEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceRate, setVoiceRate] = useState(1);
   const [thinkingStepIndex, setThinkingStepIndex] = useState(0);
   const [typingState, setTypingState] = useState({
     messageId: null,
@@ -848,6 +870,7 @@ function Dashboard() {
   const programmaticScrollLockUntilRef = useRef(0);
   const requestAbortControllerRef = useRef(null);
   const userInterruptedRef = useRef(false);
+  const shouldAutoSubmitVoiceRef = useRef(false);
 
   const activeInsightMessage = activeInsightMessageId
     ? messages.find(
@@ -859,7 +882,14 @@ function Dashboard() {
     ? SEARCH_AWARE_STATUS_MESSAGES
     : THINKING_STATUS_MESSAGES;
   const isResponseInterruptible = isLoading || Boolean(typingState.messageId);
+  const isSpeechSynthesisAvailable = isSpeechSynthesisSupported();
+  const liveTranscript = [transcript, interimTranscript].filter(Boolean).join(" ").trim();
   const cloudHistoryEnabled = isCloudHistoryEnabled();
+
+  const stopVoicePlayback = useCallback(() => {
+    stopSpeaking();
+    setIsSpeaking(false);
+  }, []);
 
   const loadHistory = useCallback(
     async (preferredChatId = null) => {
@@ -1056,6 +1086,132 @@ function Dashboard() {
     return true;
   }, [stopTypingAnimation, typingState.messageId, typingState.visibleText]);
 
+  const submitMessage = useCallback(
+    async (rawMessage) => {
+      const nextMessage = String(rawMessage || "").trim();
+      if (!nextMessage || isResponseInterruptible) {
+        return;
+      }
+
+      userInterruptedRef.current = false;
+      const requestAbortController = new AbortController();
+      requestAbortControllerRef.current = requestAbortController;
+
+      stopTypingAnimation();
+      stopVoicePlayback();
+      shouldAutoScrollRef.current = true;
+      setThinkingStepIndex(0);
+      setIsSearchLikely(isLikelySearchIntent(nextMessage));
+      setErrorMessage("");
+      setVoiceStatusMessage("");
+      setInputValue("");
+      setMessages((prev) => [...prev, createChatMessage("user", nextMessage)]);
+      setIsLoading(true);
+
+      try {
+        const data = await sendMessage(nextMessage, {
+          signal: requestAbortController.signal,
+        });
+
+        if (userInterruptedRef.current) {
+          return;
+        }
+
+        const structuredPayload = buildStructuredPayload(data);
+        const aiText = structuredPayload.answer || "I could not generate a response just now.";
+        const assistantMessage = createChatMessage("assistant", aiText, structuredPayload, {
+          animate: true,
+        });
+
+        setMessages((prev) => [...prev, assistantMessage]);
+
+        if (hasStructuredInsights(assistantMessage.structured)) {
+          setActiveInsightMessageId(assistantMessage.id);
+        }
+
+        if (isVoiceOutputEnabled && aiText && isSpeechSynthesisAvailable) {
+          const speechResult = speakText(aiText, {
+            rate: voiceRate,
+            onStart: () => {
+              setIsSpeaking(true);
+            },
+            onEnd: () => {
+              setIsSpeaking(false);
+            },
+            onError: () => {
+              setIsSpeaking(false);
+            },
+          });
+
+          if (!speechResult.ok && speechResult.error) {
+            setVoiceStatusMessage(speechResult.error);
+          }
+        }
+
+        if (userId) {
+          try {
+            let preferredChatId = activeChatId;
+
+            if (activeChatId) {
+              await updateChatById(activeChatId, userId, nextMessage, aiText, structuredPayload);
+            } else {
+              const saved = await saveMessage(userId, nextMessage, aiText, structuredPayload);
+              preferredChatId = saved?.id || null;
+            }
+
+            await loadHistory(preferredChatId);
+          } catch (historyError) {
+            const message =
+              historyError instanceof Error
+                ? historyError.message
+                : "Failed to save chat history.";
+            setHistoryErrorMessage(message);
+          }
+        }
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : "";
+        const isInterrupted =
+          userInterruptedRef.current ||
+          /request canceled|cancelled|canceled|aborted|abort/i.test(rawMessage);
+
+        if (isInterrupted) {
+          setErrorMessage("");
+          setMessages((prev) => [...prev, createChatMessage("assistant", "Generation stopped.")]);
+          return;
+        }
+
+        const userVisibleMessage = toFriendlyChatErrorMessage(rawMessage);
+
+        setErrorMessage(userVisibleMessage);
+        setMessages((prev) => [
+          ...prev,
+          createChatMessage(
+            "assistant",
+            `I hit an issue while processing that request: ${userVisibleMessage}`,
+            null,
+            { isError: true }
+          ),
+        ]);
+      } finally {
+        requestAbortControllerRef.current = null;
+        setIsLoading(false);
+        setIsSearchLikely(false);
+      }
+    },
+    [
+      activeChatId,
+      isResponseInterruptible,
+      isSpeechSynthesisAvailable,
+      isVoiceOutputEnabled,
+      loadHistory,
+      sendMessage,
+      stopTypingAnimation,
+      stopVoicePlayback,
+      userId,
+      voiceRate,
+    ]
+  );
+
   const handleInterruptResponse = useCallback(() => {
     userInterruptedRef.current = true;
     const didInterruptTyping = interruptTypingResponse();
@@ -1070,10 +1226,69 @@ function Dashboard() {
       setIsSearchLikely(false);
     }
 
+    stopVoicePlayback();
+
     if (didInterruptTyping) {
       setErrorMessage("");
     }
-  }, [interruptTypingResponse, isLoading]);
+  }, [interruptTypingResponse, isLoading, stopVoicePlayback]);
+
+  const handleMicToggle = useCallback(() => {
+    if (!isSpeechRecognitionSupported) {
+      setVoiceStatusMessage("Voice not supported in this browser.");
+      return;
+    }
+
+    if (isListening) {
+      shouldAutoSubmitVoiceRef.current = false;
+      stopListening();
+      return;
+    }
+
+    if (isResponseInterruptible) {
+      return;
+    }
+
+    setVoiceStatusMessage("");
+    clearSpeechRecognitionError();
+    resetTranscript();
+    stopVoicePlayback();
+    shouldAutoSubmitVoiceRef.current = VOICE_AUTO_SUBMIT_ENABLED;
+    const started = startListening();
+
+    if (!started) {
+      shouldAutoSubmitVoiceRef.current = false;
+      setVoiceStatusMessage("Could not start microphone listening.");
+    }
+  }, [
+    clearSpeechRecognitionError,
+    isListening,
+    isResponseInterruptible,
+    isSpeechRecognitionSupported,
+    resetTranscript,
+    startListening,
+    stopListening,
+    stopVoicePlayback,
+  ]);
+
+  const handleVoiceOutputToggle = useCallback(() => {
+    if (!isSpeechSynthesisAvailable) {
+      setVoiceStatusMessage("Voice output is not supported in this browser.");
+      return;
+    }
+
+    setIsVoiceOutputEnabled((current) => {
+      const next = !current;
+      if (!next) {
+        stopVoicePlayback();
+      }
+      return next;
+    });
+  }, [isSpeechSynthesisAvailable, stopVoicePlayback]);
+
+  const handleStopSpeaking = useCallback(() => {
+    stopVoicePlayback();
+  }, [stopVoicePlayback]);
 
   useEffect(() => {
     if (!shouldAutoScrollRef.current) {
@@ -1166,6 +1381,55 @@ function Dashboard() {
   }, [isLoading, loadingStatusMessages.length]);
 
   useEffect(() => {
+    if (!liveTranscript) {
+      return;
+    }
+
+    setInputValue(liveTranscript);
+  }, [liveTranscript]);
+
+  useEffect(() => {
+    if (!speechRecognitionError) {
+      return;
+    }
+
+    setVoiceStatusMessage(speechRecognitionError);
+  }, [speechRecognitionError]);
+
+  useEffect(() => {
+    if (isListening) {
+      return;
+    }
+
+    if (!shouldAutoSubmitVoiceRef.current) {
+      return;
+    }
+
+    shouldAutoSubmitVoiceRef.current = false;
+    const finalTranscript = String(transcript || "").trim();
+
+    if (!finalTranscript) {
+      return;
+    }
+
+    if (isResponseInterruptible) {
+      setVoiceStatusMessage("Voice captured. Send once current response is complete.");
+      return;
+    }
+
+    void submitMessage(finalTranscript);
+    resetTranscript();
+  }, [isListening, isResponseInterruptible, resetTranscript, submitMessage, transcript]);
+
+  useEffect(() => {
+    if (isVoiceOutputEnabled) {
+      return;
+    }
+
+    stopVoicePlayback();
+  }, [isVoiceOutputEnabled, stopVoicePlayback]);
+
+  useEffect(() => {
     return () => {
       if (typingRafRef.current !== null) {
         window.cancelAnimationFrame(typingRafRef.current);
@@ -1179,8 +1443,11 @@ function Dashboard() {
         requestAbortControllerRef.current.abort();
         requestAbortControllerRef.current = null;
       }
+
+      stopListening();
+      stopVoicePlayback();
     };
-  }, []);
+  }, [stopListening, stopVoicePlayback]);
 
   useEffect(() => {
     if (!activeInsightMessageId) {
@@ -1356,119 +1623,32 @@ function Dashboard() {
 
   useEffect(() => {
     stopTypingAnimation();
+    stopVoicePlayback();
+    stopListening();
+    resetTranscript();
+    shouldAutoSubmitVoiceRef.current = false;
     shouldAutoScrollRef.current = true;
     typedMessageIdsRef.current = new Set();
     setActiveInsightMessageId(null);
     setInsightLoadingMessageId(null);
     setIsSearchLikely(false);
     setErrorMessage("");
+    setVoiceStatusMessage("");
     setHistoryErrorMessage("");
     setInputValue("");
     setMessages([createChatMessage("assistant", WELCOME_MESSAGE)]);
-  }, [stopTypingAnimation, userId]);
+  }, [resetTranscript, stopListening, stopTypingAnimation, stopVoicePlayback, userId]);
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = (event) => {
     event.preventDefault();
-
-    const nextMessage = inputValue.trim();
-    if (!nextMessage || isResponseInterruptible) return;
-
-    userInterruptedRef.current = false;
-    const requestAbortController = new AbortController();
-    requestAbortControllerRef.current = requestAbortController;
-
-    stopTypingAnimation();
-    shouldAutoScrollRef.current = true;
-    setThinkingStepIndex(0);
-    setIsSearchLikely(isLikelySearchIntent(nextMessage));
-    setErrorMessage("");
-    setInputValue("");
-    setMessages((prev) => [...prev, createChatMessage("user", nextMessage)]);
-    setIsLoading(true);
-
-    try {
-      const data = await sendMessage(nextMessage, {
-        signal: requestAbortController.signal,
-      });
-
-      if (userInterruptedRef.current) {
-        return;
-      }
-
-      const structuredPayload = buildStructuredPayload(data);
-      const aiText = structuredPayload.answer || "I could not generate a response just now.";
-      const assistantMessage = createChatMessage("assistant", aiText, structuredPayload, {
-        animate: true,
-      });
-
-      setMessages((prev) => [
-        ...prev,
-        assistantMessage,
-      ]);
-
-      if (hasStructuredInsights(assistantMessage.structured)) {
-        setActiveInsightMessageId(assistantMessage.id);
-      }
-
-      if (userId) {
-        try {
-          let preferredChatId = activeChatId;
-
-          if (activeChatId) {
-            await updateChatById(activeChatId, userId, nextMessage, aiText, structuredPayload);
-          } else {
-            const saved = await saveMessage(userId, nextMessage, aiText, structuredPayload);
-            preferredChatId = saved?.id || null;
-          }
-
-          await loadHistory(preferredChatId);
-        } catch (historyError) {
-          const message =
-            historyError instanceof Error
-              ? historyError.message
-              : "Failed to save chat history.";
-          setHistoryErrorMessage(message);
-        }
-      }
-    } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : "";
-      const isInterrupted =
-        userInterruptedRef.current ||
-        /request canceled|cancelled|canceled|aborted|abort/i.test(rawMessage);
-
-      if (isInterrupted) {
-        setErrorMessage("");
-        setMessages((prev) => [
-          ...prev,
-          createChatMessage("assistant", "Generation stopped."),
-        ]);
-        return;
-      }
-
-      const userVisibleMessage = toFriendlyChatErrorMessage(rawMessage);
-
-      setErrorMessage(userVisibleMessage);
-      setMessages((prev) => [
-        ...prev,
-        createChatMessage(
-          "assistant",
-          `I hit an issue while processing that request: ${userVisibleMessage}`,
-          null,
-          { isError: true }
-        ),
-      ]);
-    } finally {
-      requestAbortControllerRef.current = null;
-      setIsLoading(false);
-      setIsSearchLikely(false);
-    }
+    void submitMessage(inputValue);
   };
 
   const handleInputKeyDown = (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       if (!isResponseInterruptible) {
-        void handleSubmit(event);
+        void submitMessage(inputValue);
       }
     }
   };
@@ -1684,7 +1864,67 @@ function Dashboard() {
                     disabled={isLoading}
                   />
                   <div className="chat-input-actions">
-                    <p className="chat-input-hint">Press Enter to send, Shift + Enter for a new line.</p>
+                    <div className="chat-input-meta">
+                      <p className="chat-input-hint">Press Enter to send, Shift + Enter for a new line.</p>
+
+                      <div className="chat-voice-controls">
+                        <button
+                          type="button"
+                          className={`chat-voice-button chat-mic-button${isListening ? " is-listening" : ""}`}
+                          onClick={handleMicToggle}
+                          disabled={isResponseInterruptible && !isListening}
+                          aria-pressed={isListening}
+                          title={isListening ? "Stop listening" : "Start voice input"}
+                        >
+                          {isListening ? "Listening..." : "Mic"}
+                        </button>
+
+                        <button
+                          type="button"
+                          className={`chat-voice-button${isVoiceOutputEnabled ? " is-active" : ""}`}
+                          onClick={handleVoiceOutputToggle}
+                          aria-pressed={isVoiceOutputEnabled}
+                          title="Toggle voice output"
+                        >
+                          {isVoiceOutputEnabled ? "Voice On" : "Voice Off"}
+                        </button>
+
+                        <label className="chat-voice-rate-wrap" htmlFor="chat-voice-rate-select">
+                          <span>Speed</span>
+                          <select
+                            id="chat-voice-rate-select"
+                            className="chat-voice-rate-select"
+                            value={String(voiceRate)}
+                            onChange={(event) => setVoiceRate(Number(event.target.value))}
+                            disabled={!isVoiceOutputEnabled}
+                          >
+                            <option value="0.9">0.9x</option>
+                            <option value="1">1.0x</option>
+                            <option value="1.15">1.15x</option>
+                          </select>
+                        </label>
+
+                        {isSpeaking ? (
+                          <button
+                            type="button"
+                            className="chat-voice-button chat-voice-stop-button"
+                            onClick={handleStopSpeaking}
+                            title="Stop speaking"
+                          >
+                            Stop Voice
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {voiceStatusMessage ? (
+                        <p className="chat-voice-status chat-voice-status-error">{voiceStatusMessage}</p>
+                      ) : isListening ? (
+                        <p className="chat-voice-status">Listening for your query...</p>
+                      ) : isSpeaking ? (
+                        <p className="chat-voice-status">Speaking response...</p>
+                      ) : null}
+                    </div>
+
                     <button
                       className={`chat-send-button${isResponseInterruptible ? " chat-stop-button" : ""}`}
                       type={isResponseInterruptible ? "button" : "submit"}
