@@ -1,205 +1,193 @@
 # Intellexa
 
-Ethical, Explainable, and Context-Aware AI Assistant for trust-first decision support.
+Trust-aware, explainable AI for real-world decision support.
 
-## Problem Statement
-Most chatbots optimize for speed and fluency, but they rarely explain why an answer was generated, what assumptions were made, or whether bias influenced the response.
+Intellexa doesn’t just answer questions — it questions the question itself.
 
-This creates three core problems:
-- Low transparency in high-stakes queries
-- Limited personalization and context retention
-- Weak safeguards for fairness and ethical reasoning
-
-## Solution Overview
-Intellexa is designed as a trust-aware AI system, not just a Q&A bot.
-
-Before answering, Intellexa runs a Perspective Autopsy to inspect user intent, assumptions, and potential bias. It then uses a multi-model pipeline to generate fast responses, reason across multiple perspectives, enforce ethical checks, and provide clear explanations with confidence and trust indicators.
+## Key Idea
+Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluates user intent before answering, detects bias and assumptions, decides when external search is needed, and returns answers with transparent reasoning, ethical safeguards, and trust signals.
 
 ## Why Intellexa Is Different
-Unlike conventional chatbots, Intellexa:
-- Analyzes the question before generating an answer
-- Separates fast generation from deep reasoning using specialized models
-- Provides explainability as a default output, not an optional extra
-- Applies an ethical validation layer before final delivery
-- Tracks trust metrics such as confidence and ethical risk
+- Agentic AI workflow: the model decides when to call search tools, instead of relying on keyword-triggered retrieval.
+- Cognitive challenge layer: Perspective Autopsy and Clarification Questions actively challenge ambiguous or biased framing.
+- Ethical + explainable by default: responses include risk-aware handling, trust metrics, and a clear Why this answer explanation.
 
-## Key Features
-- Perspective Autopsy: detects assumptions, hidden bias, and missing angles
-- Multi-LLM Architecture: Groq for speed, Gemini for reasoning and ethics
-- Context Awareness: user-specific memory and history-informed responses
-- Explainable AI: includes reasoning trace and rationale with outputs
-- Ethical AI Layer: bias detection and fairness-oriented correction
-- Trust Metrics: trust score, confidence level, and ethical risk indicator
-- Authenticated Experience: Clerk-based user identity and session management
+## Features
+### Identity and User Context
+- Clerk authentication for secure signup/login and protected routes.
+- User-scoped session experience in the frontend.
+- Supabase-backed chat history with a ChatGPT-like sidebar.
+
+### Agentic Intelligence and Retrieval
+- Full chat interface built with React + Vite.
+- Agentic RAG flow where LLaMA can decide when web search is needed.
+- Integrated web search for real-time information retrieval.
+- Source and citation display in responses.
+
+### Cognitive and Ethical Reasoning
+- Perspective Autopsy Engine to detect assumptions, bias, and missing angles.
+- Multi-perspective responses across:
+  - Utilitarian
+  - Rights-based
+  - Care ethics
+- Ethical AI layer with bias detection, risk categorization, and safe response handling.
+- Clarification Question Engine that asks follow-up questions only when needed.
+
+### Trust and Explainability
+- Trust score output on a 0 to 100 scale.
+- Confidence level labels for answer reliability.
+- Explanation Engine with Why this answer transparency.
+
+### Product UX
+- ChatGPT-like dashboard layout.
+- Sidebar history, smooth scrolling, loading states, and typing effects.
+- Dedicated analysis and source-aware output views.
 
 ## System Architecture
+Intellexa uses a staged architecture that combines agentic decisioning with retrieval-aware reasoning.
+
 ```mermaid
 flowchart LR
-    A[Authenticated User] --> B[Perspective Autopsy]
-    B --> C[Context Retrieval]
-    C --> D[Primary Response Generation - Groq]
-    D --> E[Multi-Perspective Expansion - Gemini]
-    E --> F[Ethical Validation Layer - Gemini]
-    F --> G[Explainability Engine - Gemini]
-    G --> H[Final Structured Response + Trust Metrics]
+    U[User Query] --> A[Clerk Auth + Protected Route]
+    A --> B[Perspective Autopsy]
+    B --> C{Need Clarification?}
+    C -->|Yes| D[Clarification Question]
+    C -->|No| E[LLaMA Draft Answer]
+    D --> E
+    E --> F{Agentic Search Decision}
+    F -->|Search| G[Web Search Tool]
+    F -->|No Search| H[Local Reasoning Path]
+    G --> I[RAG Context Fusion]
+    H --> I
+    I --> J[Multi-Perspective + Ethical Layer]
+    J --> K[Explanation + Trust Scoring]
+    K --> L[Response + Sources + Metadata]
+    L --> M[Supabase Conversation History]
 ```
-
-Architecture notes:
-- The pipeline is intentionally staged so each phase has a single responsibility.
-- Fast generation and deep reasoning are decoupled for both performance and quality.
-- User context is retrieved before generation to produce personalized answers.
-
-## Tech Stack
-Frontend:
-- React (Vite)
-- Clerk Authentication
-
-Backend:
-- Node.js (Express)
-
-AI Models:
-- Groq (LLaMA) for primary response generation
-- Google Gemini for reasoning, ethics, and explainability
-
-Data Layer:
-- Supabase / PostgreSQL for user data and memory
-- FAISS (optional) for vector search and advanced context retrieval
 
 ## How It Works
-1. User signs in and submits a query.
-2. Intellexa runs Perspective Autopsy on the query.
-3. Relevant user context is retrieved from memory/history.
-4. Groq generates the primary draft response.
-5. Gemini expands the response into multiple ethical perspectives.
-6. Ethical layer checks bias and applies fairness corrections.
-7. Explainability engine generates rationale and context trace.
-8. Final response is returned with trust score, confidence, and risk signals.
+1. User logs in via Clerk and sends a prompt from the dashboard.
+2. Intellexa runs Perspective Autopsy to inspect assumptions, framing, and potential bias.
+3. If the query is ambiguous or sensitive, Clarification Question logic can request a follow-up.
+4. LLaMA generates a primary answer draft.
+5. The system decides agentically whether web search is required.
+6. If needed, live web results are retrieved and fused as context.
+7. Intellexa generates multi-perspective output and applies the ethical safety layer.
+8. Explanation and trust metrics are computed.
+9. Final response is returned with sources, and conversation history is stored in Supabase.
 
-Demo links:
-- Live URL: [Intellexa](https://intellexa-lac.vercel.app/)
+## Tech Stack
+- Frontend: React, Vite, Clerk, Axios
+- Backend: FastAPI, Uvicorn, Pydantic
+- AI Layer: LLaMA via Hugging Face Router, Gemini for reasoning/autopsy/ethics support
+- Data Layer: Supabase (conversation storage)
+- Optional Retrieval Enhancement: SerpAPI key path with fallback web retrieval strategy
 
-## Installation Guide
-Prerequisites:
+## Installation
+### Prerequisites
 - Node.js 18+
-- npm 9+
+- Python 3.10+
+- npm and pip
 
-Frontend setup:
+### 1) Clone and open project
 ```bash
-cd client
-npm install
-npm run dev
+git clone https://github.com/SanskarG-20/Intellexa.git
+cd Intellexa
 ```
 
-Backend setup (Node.js + Express):
+### 2) Backend setup (FastAPI)
 ```bash
 cd server
+python -m venv .venv
+
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
+# macOS/Linux
+# source .venv/bin/activate
+
+pip install -r requirements.txt
+python -m app.main
+```
+
+Backend starts on http://localhost:8000 and exposes chat at /api/v1/chat.
+
+### 3) Frontend setup (React + Vite)
+```bash
+cd client
 npm install
 npm run dev
 ```
 
-Production build (frontend):
-```bash
-cd client
-npm run build
-npm run preview
-```
+Frontend runs on http://localhost:5173 by default.
 
 ## Environment Variables
-Frontend (`client/.env`):
+Create env files in client and server roots.
+
+### Frontend: client/.env
 ```env
 VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE_URL=http://localhost:8000/api
+VITE_CLERK_TOKEN_TEMPLATE=
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-Backend (`server/.env`):
+### Backend: server/.env
 ```env
-PORT=8000
-NODE_ENV=development
-CLERK_SECRET_KEY=your_clerk_secret
-GROQ_API_KEY=your_groq_key
-GEMINI_API_KEY=your_gemini_key
-SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-DATABASE_URL=your_postgres_connection_string
-FAISS_ENABLED=false
+APP_NAME=Intellexa Core Chat
+DEBUG=true
+
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash
+
+HF_TOKEN=your_huggingface_token
+HF_MODEL=meta-llama/Llama-3.1-8B-Instruct
+
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_KEY=your_supabase_service_key
+
+SERPAPI_API_KEY=optional_serpapi_key
+MOCK_USER_ID=demo_user
 ```
 
 ## Folder Structure
 ```text
 Intellexa/
-├─ client/                 # React + Vite frontend
-│  ├─ src/
-│  ├─ public/
-│  └─ package.json
-├─ server/                 # Express backend + AI orchestration
-│  ├─ src/
-│  │  ├─ routes/
-│  │  ├─ services/
-│  │  ├─ middleware/
-│  │  └─ controllers/
-│  └─ package.json
-├─ README.md
-└─ vercel.json
+|- client/
+|  |- src/
+|  |  |- components/
+|  |  |- pages/
+|  |  |- services/
+|  |  |- AppRoutes.jsx
+|  |  |- main.jsx
+|  |- package.json
+|- server/
+|  |- app/
+|  |  |- api/
+|  |  |- core/
+|  |  |- db/
+|  |  |- schemas/
+|  |  |- services/
+|  |  |- main.py
+|  |- requirements.txt
+|- README.md
+|- vercel.json
 ```
 
-## API Overview
-Base URL:
-- Local: `http://localhost:8000`
-
-Core endpoints:
-- `POST /api/v1/auth/session` : validates user session and identity context
-- `POST /api/v1/chat` : generates trust-aware response for a user query
-- `GET /api/v1/history/:userId` : fetches conversation/context history
-- `POST /api/v1/feedback` : stores user feedback for continuous improvement
-
-Example chat request:
-```json
-{
-  "userId": "user_123",
-  "query": "Should AI be used in hiring decisions?"
-}
-```
-
-Example response shape:
-```json
-{
-  "perspective_autopsy": {
-    "assumptions": ["..."],
-    "bias_detected": "...",
-    "missing_angles": ["..."]
-  },
-  "answer": {
-    "utilitarian": "...",
-    "rights_based": "...",
-    "care_ethics": "..."
-  },
-  "explanation": ["..."],
-  "ethical_check": {
-    "bias_detected": true,
-    "action_taken": "..."
-  },
-  "trust_score": 87,
-  "confidence": "high"
-}
-```
+## Demo and Screenshots
+- Live Demo: https://intellexa-lac.vercel.app/
+- Screenshots placeholder:
+  - docs/screenshots/dashboard.png
+  - docs/screenshots/chat-with-sources.png
+  - docs/screenshots/analysis-panel.png
 
 ## Future Improvements
-- Real-time adaptive memory scoring per user intent cluster
-- Policy-driven governance controls for regulated domains
-- Tenant-level model routing and cost optimization
-- Human-in-the-loop review workflows for sensitive outputs
-- Evaluation dashboards for factuality, fairness, and consistency
-
-## Contributing
-Contributions are welcome.
-
-Suggested flow:
-1. Fork the repository
-2. Create a feature branch
-3. Commit focused changes with clear messages
-4. Open a pull request with context and test notes
+- Full Clerk user ID propagation into backend persistence path.
+- Streaming token responses for lower perceived latency.
+- Automated evaluation suite for bias, factuality, and citation quality.
+- Multi-tenant model routing and cost-aware fallback policy.
+- Human review workflows for high-risk prompts.
 
 ## License
-MIT License.
-
-If you use this project in research or production pilots, please include attribution.
+MIT.
