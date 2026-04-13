@@ -33,7 +33,17 @@ class Settings(BaseSettings):
 
     # Supabase Settings
     SUPABASE_URL: str = ""
-    SUPABASE_KEY: str = ""
+    SUPABASE_KEY: str = ""  # Anon key (for client-side)
+    SUPABASE_SERVICE_ROLE_KEY: str = ""  # Service role key (for backend - bypasses RLS)
+    
+    # Supabase Storage Settings (for Memory System)
+    SUPABASE_STORAGE_BUCKET: str = "user-uploads"
+    
+    # Memory System Settings
+    MAX_FILE_SIZE_MB: int = 50
+    EMBEDDING_DIMENSION: int = 768  # Gemini embedding dimension
+    CHUNK_MAX_TOKENS: int = 500
+    CHUNK_OVERLAP_TOKENS: int = 50
 
     # Search API Settings (optional — enables SerpAPI over DuckDuckGo fallback)
     SERPAPI_API_KEY: str = ""
@@ -106,6 +116,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+    
+    def get_max_file_size_bytes(self) -> int:
+        """Return max file size in bytes."""
+        return self.MAX_FILE_SIZE_MB * 1024 * 1024
 
 
 settings = Settings()

@@ -2,6 +2,7 @@ import { SignOutButton, useUser } from "@clerk/clerk-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ChatHistorySidebar from "../components/ChatHistorySidebar";
 import VoiceMode from "../components/VoiceMode";
+import KnowledgePanel from "../components/KnowledgePanel";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useApiService } from "../services/apiService";
 import {
@@ -867,6 +868,7 @@ function Dashboard() {
     visibleText: "",
     visibleLength: 0,
   });
+  const [activeView, setActiveView] = useState("chat"); // "chat" or "knowledge"
   const historyRef = useRef(null);
   const messagesEndRef = useRef(null);
   const typingRafRef = useRef(null);
@@ -1802,6 +1804,22 @@ function Dashboard() {
             <p className="dashboard-subtitle">Your authenticated AI chat workspace.</p>
           </div>
           <div className="dashboard-header-actions">
+            <div className="dashboard-view-tabs">
+              <button
+                type="button"
+                className={`dashboard-view-tab ${activeView === "chat" ? "is-active" : ""}`}
+                onClick={() => setActiveView("chat")}
+              >
+                💬 Chat
+              </button>
+              <button
+                type="button"
+                className={`dashboard-view-tab ${activeView === "knowledge" ? "is-active" : ""}`}
+                onClick={() => setActiveView("knowledge")}
+              >
+                📚 My Knowledge
+              </button>
+            </div>
             <button
               type="button"
               className={`dashboard-voice-mode-toggle ${isVoiceModeActive ? "is-active" : ""}`}
@@ -1830,6 +1848,8 @@ function Dashboard() {
             onStopVoiceMode={handleStopVoiceMode}
             onInterruptActiveResponse={handleInterruptResponse}
           />
+        ) : activeView === "knowledge" ? (
+          <KnowledgePanel />
         ) : (
         <div className="dashboard-chat-layout">
           <ChatHistorySidebar

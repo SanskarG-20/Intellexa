@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.chat import router as chat_router
+from app.api.v1.memory import router as memory_router
 from app.core.config import settings
 import uvicorn
 
@@ -33,6 +34,7 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(chat_router)
+app.include_router(memory_router)
 
 @app.get("/")
 def read_root():

@@ -5,13 +5,21 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Initialize Supabase client lazily or safely
+# Use service role key for backend operations (bypasses RLS)
 supabase: Client = None
 
 try:
     if settings.SUPABASE_URL and settings.SUPABASE_URL.startswith("http"):
+        # Prefer service role key for backend operations
+        service_key = settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_KEY
+        if not settings.SUPABASE_SERVICE_ROLE_KEY:
+            logger.warning(
+                "SUPABASE_SERVICE_ROLE_KEY not set. Using anon key which may fail with RLS. "
+                "Set SUPABASE_SERVICE_ROLE_KEY for backend operations."
+            )
         supabase = create_client(
             settings.SUPABASE_URL, 
-            settings.SUPABASE_KEY
+            service_key
         )
     else:
         logger.warning("Supabase URL is missing or invalid. Database features will be disabled.")

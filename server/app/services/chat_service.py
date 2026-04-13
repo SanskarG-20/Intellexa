@@ -11,6 +11,7 @@ from app.services.perspective_service import perspective_service
 from app.services.rag_service import rag_service
 from app.services.reframe_service import reframe_service
 from app.services.trust_service import trust_service
+from app.services.memory.retrieval_service import retrieval_service
 
 
 class ChatService:
@@ -56,6 +57,7 @@ class ChatService:
         cls,
         context: str,
         rag_context: str = "",
+        memory_context: str = "",
         force_web_grounded: bool = False,
     ) -> str:
         system_prompt = (
@@ -64,6 +66,15 @@ class ChatService:
             "For any question about current facts, you MUST rely on search results. "
             "If search results are available, do NOT use your own knowledge.\n\n"
         )
+
+        if memory_context:
+            system_prompt += f"{memory_context}\n\n"
+            system_prompt += (
+                "Memory rules:\n"
+                "- The USER'S PERSONAL CONTEXT contains information from documents they've uploaded.\n"
+                "- When answering, prioritize information from the user's personal context if relevant.\n"
+                "- Cite sources when using personal context (e.g., 'According to your document...').\n\n"
+            )
 
         if context:
             system_prompt += f"Here is the recent conversation history for context:\n{context}\n\n"
@@ -249,6 +260,7 @@ class ChatService:
     async def process_chat(user_id: str, message: str, voice_mode: bool = False) -> dict:
         """
         Main workflow for processing a chat message.
+        Now includes memory context retrieval for personalized responses.
         """
         # 1. Perspective Autopsy (Gemini)
         autopsy_res = await autopsy_service.perform_autopsy(message)
@@ -258,8 +270,17 @@ class ChatService:
         reframed_query = str((reframe_payload or {}).get("reframed_query", "")).strip()
         query_for_reasoning = reframed_query or message
 
-        # 3. Context retrieval
+        # 3. Context retrieval (conversation history)
         context = await context_service.get_user_context(user_id, limit=5)
+
+        # 3b. Memory context retrieval (user's personal documents)
+        memory_results = await retrieval_service.retrieve_context(
+            query=query_for_reasoning,
+            user_id=user_id,
+            top_k=5
+        )
+        memory_context = retrieval_service.format_context_for_prompt(memory_results)
+        memory_used = bool(memory_results)
 
         # 4. Real-time detection + forced search (critical path)
         autopsy_needs_search = bool((autopsy_res or {}).get("needs_search", False))
@@ -293,6 +314,7 @@ class ChatService:
             system_prompt = ChatService._build_main_system_prompt(
                 context=context,
                 rag_context=rag_context,
+                memory_context=memory_context,
                 force_web_grounded=force_search and bool(web_data),
             )
             main_answer = await llama_service.get_ai_response(
@@ -305,6 +327,7 @@ class ChatService:
                     ChatService._build_main_system_prompt(
                         context=context,
                         rag_context=rag_context,
+                        memory_context=memory_context,
                         force_web_grounded=True,
                     )
                     + "IMPORTANT: Relevant search results are already provided. "
@@ -323,6 +346,7 @@ class ChatService:
                         ChatService._build_main_system_prompt(
                             context=context,
                             rag_context=rag_context,
+                            memory_context=memory_context,
                             force_web_grounded=True,
                         )
                         + "STRICT VALIDATION MODE: Previous answer did not align with the provided "
@@ -401,6 +425,7 @@ class ChatService:
             "trust_score": trust_score,
             "confidence": confidence,
             "search_used": search_used,
+            "memory_used": memory_used,
             "sources": web_data,
             "full_answer": main_answer,
             "short_answer": short_answer,
