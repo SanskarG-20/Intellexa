@@ -331,4 +331,7 @@ export function useApiService() {
 
 export { API_BASE_URL };
 
-export default apiClient;
+// Create a default API client for direct imports
+const defaultApiClient = getApiClient(API_BASE_URL);
+
+export default defaultApiClient;
