@@ -128,9 +128,11 @@ function App() {
 
   useEffect(() => {
     // Guard against stale inline styles from interrupted route transitions.
+    document.body.style.removeProperty("opacity");
     document.body.style.opacity = "1";
 
     return () => {
+      document.body.style.removeProperty("opacity");
       document.body.style.opacity = "1";
     };
   }, []);
@@ -271,7 +273,7 @@ function App() {
 
   /* GSAP motion system */
   useLayoutEffect(() => {
-    gsap.set("body", { opacity: 1 });
+    gsap.set("body", { opacity: 1, clearProps: "opacity" });
 
     if (isLiteMode || reducedMotion) {
       return undefined;
@@ -467,6 +469,9 @@ function App() {
     return () => {
       ctx.revert();
       ScrollTrigger.getAll().forEach((t) => t.kill());
+      // Ensure body opacity is reset after GSAP cleanup
+      gsap.set("body", { opacity: 1, clearProps: "opacity" });
+      document.body.style.removeProperty("opacity");
     };
   }, [isLiteMode, reducedMotion]);
 

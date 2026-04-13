@@ -48,6 +48,9 @@ body {
   padding: 0;
   min-height: 100vh;
   overflow-x: hidden;
+  /* Ensure body is always visible - prevent GSAP/route transition issues */
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 
 a {
@@ -1625,6 +1628,75 @@ button {
   letter-spacing: 0.08em;
   color: var(--text-muted);
   text-transform: uppercase;
+}
+
+/* ── CLERK LOADING & ERROR SCREENS ────────────────────────── */
+.clerk-loading-screen {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: var(--bg);
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+
+.clerk-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.clerk-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: clerkSpin 1s linear infinite;
+}
+
+@keyframes clerkSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.clerk-loading-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.clerk-error-text {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: #ffb1aa;
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+.clerk-retry-button {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bg);
+  background-color: var(--accent);
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.clerk-retry-button:hover {
+  opacity: 0.9;
 }
 
 .auth-page .cl-rootBox {

@@ -16,7 +16,11 @@ function AppRoutes() {
 
   useEffect(() => {
     // Safety guard: prevent stale GSAP inline styles from leaving the app fully transparent.
+    document.body.style.removeProperty("opacity");
     document.body.style.opacity = "1";
+    // Clear any GSAP-related inline styles that might cause issues
+    document.body.style.removeProperty("transform");
+    document.body.style.removeProperty("visibility");
   }, [location.pathname]);
 
   return (
