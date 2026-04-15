@@ -70,10 +70,15 @@ class ChatService:
         if memory_context:
             system_prompt += f"{memory_context}\n\n"
             system_prompt += (
-                "Memory rules:\n"
+                "Memory rules (CRITICAL - HIGHEST PRIORITY):\n"
                 "- The USER'S PERSONAL CONTEXT contains information from documents they've uploaded.\n"
-                "- When answering, prioritize information from the user's personal context if relevant.\n"
-                "- Cite sources when using personal context (e.g., 'According to your document...').\n\n"
+                "- This is TRUSTED information from the user's own knowledge base.\n"
+                "- You MUST use this information to answer questions about topics in the documents.\n"
+                "- When the question relates to anything in the personal context, answer using ONLY that information.\n"
+                "- DO NOT say 'insufficient information' if the answer exists in the personal context.\n"
+                "- Cite the source filename when using information (e.g., 'According to your document [filename]...').\n"
+                "- If the personal context contains relevant information, prioritize it over your general knowledge.\n"
+                "- Extract ALL relevant details from the context - be thorough and comprehensive.\n\n"
             )
 
         if context:
@@ -277,10 +282,14 @@ class ChatService:
         memory_results = await retrieval_service.retrieve_context(
             query=query_for_reasoning,
             user_id=user_id,
-            top_k=5
+            top_k=10,
+            similarity_threshold=0.25  # Lower threshold to get more context
         )
         memory_context = retrieval_service.format_context_for_prompt(memory_results)
         memory_used = bool(memory_results)
+        
+        if memory_used:
+            print(f"[ChatService] ✓ Memory context used: {len(memory_results)} chunks from user documents")
 
         # 4. Real-time detection + forced search (critical path)
         autopsy_needs_search = bool((autopsy_res or {}).get("needs_search", False))

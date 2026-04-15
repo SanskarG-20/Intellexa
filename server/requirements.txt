@@ -13,3 +13,8 @@ faster-whisper==1.0.1
 google-genai>=1.0.0
 google-generativeai>=0.5.0
 python-multipart==0.0.9
+
+# Local Embeddings (CPU-optimized, no API needed)
+sentence-transformers>=2.2.0
+torch
+einops

@@ -44,7 +44,8 @@ class RetrievalService:
         self,
         query: str,
         user_id: str,
-        top_k: int = 5
+        top_k: int = 10,
+        similarity_threshold: float = 0.3
     ) -> List[RetrievedContext]:
         """
         Retrieve relevant context for a query.
@@ -53,6 +54,7 @@ class RetrievalService:
             query: The search query
             user_id: The user's ID
             top_k: Maximum number of results to return
+            similarity_threshold: Minimum similarity score (0-1) to include
             
         Returns:
             List of RetrievedContext objects
@@ -68,23 +70,33 @@ class RetrievalService:
             return []
         
         try:
+            print(f"[RetrievalService] Searching for: '{query[:50]}...' for user: {user_id[:8]}...")
+            
             # Generate query embedding
             query_embedding = await self.embedding_service.embed_query(query)
             
             if not query_embedding:
+                print("[RetrievalService] Failed to generate query embedding")
                 return []
+            
+            print(f"[RetrievalService] Query embedding generated: {len(query_embedding)} dims")
             
             # Perform similarity search using RPC function
             results = await self._similarity_search(
                 query_embedding=query_embedding,
                 user_id=user_id,
-                top_k=top_k
+                top_k=top_k,
+                similarity_threshold=similarity_threshold
             )
+            
+            print(f"[RetrievalService] Found {len(results)} results (threshold: {similarity_threshold})")
             
             return results
             
         except Exception as e:
             print(f"[RetrievalService] Retrieval error: {e}")
+            import traceback
+            traceback.print_exc()
             # Don't raise - retrieval failure shouldn't block chat
             return []
     
@@ -92,7 +104,8 @@ class RetrievalService:
         self,
         query_embedding: List[float],
         user_id: str,
-        top_k: int = 5
+        top_k: int = 10,
+        similarity_threshold: float = 0.3
     ) -> List[RetrievedContext]:
         """
         Perform similarity search using pgvector RPC function.
@@ -101,6 +114,7 @@ class RetrievalService:
             query_embedding: The query vector
             user_id: The user's ID
             top_k: Maximum number of results
+            similarity_threshold: Minimum similarity score to include
             
         Returns:
             List of RetrievedContext objects
@@ -109,35 +123,54 @@ class RetrievalService:
             return []
         
         try:
+            print(f"[RetrievalService] Calling RPC match_document_embeddings with user_id={user_id[:8]}...")
+            
             # Call the match_document_embeddings RPC function
             response = supabase.rpc(
                 'match_document_embeddings',
                 {
                     'query_embedding': query_embedding,
                     'match_user_id': user_id,
-                    'match_count': top_k
+                    'match_count': top_k * 2  # Get more to filter by threshold
                 }
             ).execute()
             
+            print(f"[RetrievalService] RPC response: {len(response.data) if response.data else 0} results")
+            
             if not response.data:
+                print("[RetrievalService] No data returned from RPC")
                 return []
             
-            # Convert to RetrievedContext objects
+            # Convert to RetrievedContext objects and filter by threshold
             results = []
             for item in response.data:
+                similarity = item.get('similarity', 0.0)
+                
+                # Filter by similarity threshold
+                if similarity < similarity_threshold:
+                    print(f"[RetrievalService] Skipping low similarity: {item.get('filename')} ({similarity:.3f} < {similarity_threshold})")
+                    continue
+                
                 results.append(RetrievedContext(
                     chunk_id=str(item.get('chunk_id', '')),
                     document_id=str(item.get('document_id', '')),
                     content=item.get('content', ''),
                     filename=item.get('filename', 'Unknown'),
                     file_type=item.get('file_type', 'text'),
-                    similarity=item.get('similarity', 0.0)
+                    similarity=similarity,
+                    page_number=item.get('page_number')
                 ))
+                print(f"[RetrievalService] ✓ Result: {item.get('filename')} - similarity: {similarity:.3f}")
+            
+            # Limit to top_k after filtering
+            results = results[:top_k]
             
             return results
             
         except Exception as e:
             print(f"[RetrievalService] Similarity search error: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     async def retrieve_by_document(
@@ -205,7 +238,7 @@ class RetrievalService:
     def format_context_for_prompt(
         self,
         contexts: List[RetrievedContext],
-        max_length: int = 3000
+        max_length: int = 6000
     ) -> str:
         """
         Format retrieved contexts into a string for LLM prompt injection.
@@ -225,10 +258,10 @@ class RetrievalService:
         
         for i, ctx in enumerate(contexts, 1):
             # Format each context chunk
-            source_info = f"[{ctx.filename}"
+            source_info = f"[DOCUMENT: {ctx.filename}"
             if ctx.page_number:
-                source_info += f", page {ctx.page_number}"
-            source_info += "]"
+                source_info += f", Page {ctx.page_number}"
+            source_info += f", Relevance: {ctx.similarity:.0%}]"
             
             chunk_text = f"\n{source_info}\n{ctx.content}\n"
             
@@ -241,7 +274,7 @@ class RetrievalService:
         if not formatted_parts:
             return ""
         
-        return "--- USER'S PERSONAL CONTEXT ---\n" + "".join(formatted_parts) + "\n--- END CONTEXT ---"
+        return "--- USER'S PERSONAL DOCUMENTS (READ CAREFULLY) ---\n" + "".join(formatted_parts) + "\n--- END OF USER'S DOCUMENTS ---"
 
 
 # Singleton instance

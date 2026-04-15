@@ -77,6 +77,104 @@ def _detect_file_type(content_type: str, filename: str) -> str:
 
 
 # ============================================================================
+# Re-embed Documents (Fix for model changes)
+# ============================================================================
+
+@router.post("/re-embed-all")
+async def re_embed_all_documents(
+    user_id: str = Depends(_get_user_id)
+):
+    """
+    Re-embed all documents for a user with the current embedding model.
+    Use this when the embedding model changes.
+    """
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Database not available")
+    
+    try:
+        print(f"[MemoryAPI] Re-embedding all documents for user: {user_id[:8]}...")
+        
+        # Get all documents for user
+        docs_response = supabase.table('user_documents').select(
+            'id, filename, status'
+        ).eq('user_id', user_id).execute()
+        
+        if not docs_response.data:
+            return {"message": "No documents found", "re_embedded": 0}
+        
+        total_re_embedded = 0
+        errors = []
+        
+        for doc in docs_response.data:
+            doc_id = doc['id']
+            filename = doc['filename']
+            
+            try:
+                # Get all chunks for this document
+                chunks_response = supabase.table('document_chunks').select(
+                    'id, content'
+                ).eq('document_id', doc_id).eq('user_id', user_id).execute()
+                
+                if not chunks_response.data:
+                    continue
+                
+                chunk_ids = [c['id'] for c in chunks_response.data]
+                chunk_texts = [c['content'] for c in chunks_response.data]
+                
+                print(f"[MemoryAPI] Re-embedding {len(chunk_texts)} chunks for: {filename}")
+                
+                # Delete old embeddings
+                supabase.table('document_embeddings').delete().eq(
+                    'document_id', doc_id
+                ).eq('user_id', user_id).execute()
+                
+                # Generate new embeddings
+                embeddings = await embedding_service.embed_batch(chunk_texts, skip_failures=True)
+                
+                # Store new embeddings
+                stored_count = 0
+                for chunk_id, embedding in zip(chunk_ids, embeddings):
+                    if embedding and any(x != 0 for x in embedding):
+                        try:
+                            supabase.table('document_embeddings').insert({
+                                'chunk_id': chunk_id,
+                                'document_id': doc_id,
+                                'user_id': user_id,
+                                'embedding': embedding
+                            }).execute()
+                            stored_count += 1
+                        except Exception as e:
+                            print(f"[MemoryAPI] Failed to store embedding: {e}")
+                
+                # Update document status
+                if stored_count > 0:
+                    supabase.table('user_documents').update({
+                        'status': 'ready',
+                        'error_message': None
+                    }).eq('id', doc_id).execute()
+                    
+                    total_re_embedded += stored_count
+                    print(f"[MemoryAPI] ✓ Re-embedded {stored_count}/{len(chunk_ids)} chunks for: {filename}")
+                else:
+                    errors.append(f"{filename}: No embeddings generated")
+                    
+            except Exception as e:
+                errors.append(f"{filename}: {str(e)}")
+                print(f"[MemoryAPI] Failed to re-embed {filename}: {e}")
+        
+        return {
+            "message": f"Re-embedded {total_re_embedded} chunks across {len(docs_response.data)} documents",
+            "re_embedded": total_re_embedded,
+            "documents_processed": len(docs_response.data),
+            "errors": errors if errors else None
+        }
+        
+    except Exception as e:
+        print(f"[MemoryAPI] Re-embedding failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # Background Processing
 # ============================================================================
 
@@ -121,13 +219,38 @@ async def process_document_background(
         # Store chunks in database
         chunk_ids = await _store_chunks(document_id, user_id, chunks)
         
-        # Generate and store embeddings
-        await _store_embeddings(document_id, user_id, chunks, chunk_ids)
+        if not chunk_ids:
+            await _update_document_status(
+                document_id, 'failed',
+                error_message="Failed to store document chunks"
+            )
+            return
         
-        # Update status to ready
-        await _update_document_status(document_id, 'ready')
         
-        print(f"[MemoryAPI] Document {document_id} processed successfully: {len(chunks)} chunks")
+        print(f"[MemoryAPI] Extracted {len(chunks)} chunks from {filename}")
+        
+        # Generate and store embeddings (may be partial)
+        embedding_count = await _store_embeddings(document_id, user_id, chunks, chunk_ids)
+        
+        # Determine final status
+        if embedding_count == 0:
+            # No embeddings worked - but chunks are stored
+            await _update_document_status(
+                document_id, 'partial',
+                error_message="Document stored but embeddings failed. Search may be limited."
+            )
+            print(f"[MemoryAPI] Document {document_id} stored with NO embeddings (fallback mode)")
+        elif embedding_count < len(chunk_ids):
+            # Partial embeddings
+            await _update_document_status(
+                document_id, 'partial',
+                error_message=f"Partial embeddings: {embedding_count}/{len(chunk_ids)} chunks"
+            )
+            print(f"[MemoryAPI] Document {document_id} processed with PARTIAL embeddings: {embedding_count}/{len(chunk_ids)}")
+        else:
+            # Full success
+            await _update_document_status(document_id, 'ready')
+            print(f"[MemoryAPI] Document {document_id} processed successfully: {len(chunks)} chunks, {embedding_count} embeddings")
         
     except Exception as e:
         print(f"[MemoryAPI] Document processing failed: {e}")
@@ -195,29 +318,48 @@ async def _store_embeddings(
     user_id: str,
     chunks: list,
     chunk_ids: list
-):
-    """Generate and store embeddings for chunks."""
+) -> int:
+    """
+    Generate and store embeddings for chunks.
+    Returns the number of successful embeddings.
+    Does NOT raise exceptions - handles errors gracefully.
+    """
     if not supabase or not chunk_ids:
-        return
+        return 0
+    
+    successful_embeddings = 0
     
     try:
         # Generate embeddings in batch
         texts = [chunk.content for chunk in chunks[:len(chunk_ids)]]
-        embeddings = await embedding_service.embed_batch(texts)
         
-        # Store embeddings
+        print(f"[MemoryAPI] Generating embeddings for {len(texts)} chunks...")
+        
+        # Use batch embedding with skip_failures=True to continue on errors
+        embeddings = await embedding_service.embed_batch(texts, skip_failures=True)
+        
+        # Store embeddings (skip failed ones)
         for chunk_id, embedding in zip(chunk_ids, embeddings):
-            if embedding:
-                supabase.table('document_embeddings').insert({
-                    'chunk_id': chunk_id,
-                    'document_id': document_id,
-                    'user_id': user_id,
-                    'embedding': embedding
-                }).execute()
-                
+            if embedding and any(x != 0 for x in embedding):  # Skip zero vectors
+                try:
+                    supabase.table('document_embeddings').insert({
+                        'chunk_id': chunk_id,
+                        'document_id': document_id,
+                        'user_id': user_id,
+                        'embedding': embedding
+                    }).execute()
+                    successful_embeddings += 1
+                except Exception as e:
+                    print(f"[MemoryAPI] Failed to store embedding for chunk: {e}")
+                    continue  # Continue with other chunks
+        
+        print(f"[MemoryAPI] Stored {successful_embeddings}/{len(chunk_ids)} embeddings")
+        
     except Exception as e:
-        print(f"[MemoryAPI] Failed to store embeddings: {e}")
-        raise
+        print(f"[MemoryAPI] Embedding generation failed: {e}")
+        # Don't raise - document can still be searchable with partial embeddings
+    
+    return successful_embeddings
 
 
 # ============================================================================

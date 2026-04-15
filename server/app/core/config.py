@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
     FORCE_REFRAME_DEBUG: bool = False
 
+    # Together AI Settings (for embeddings)
+    TOGETHER_API_KEY: str = ""
+    TOGETHER_EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
+
     # Hugging Face Settings
     HF_TOKEN: str = ""
     HF_MODEL: str = "meta-llama/Llama-3.1-8B-Instruct"
