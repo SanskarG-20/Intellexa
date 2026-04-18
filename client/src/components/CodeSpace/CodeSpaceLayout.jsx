@@ -24,6 +24,10 @@ const DEFAULT_LAYOUT = {
 
 const COLLAB_POLL_INTERVAL_MS = 1200;
 const DEFAULT_COLLAB_WORKSPACE_ID = 'intellexa-shared-workspace';
+const MAX_ASSIST_PROJECT_CONTEXT_CHARS = 2800;
+const MAX_ASSIST_USER_MEMORY_CHARS = 2200;
+const MAX_ASSIST_RELATED_FILES = 4;
+const MAX_ASSIST_RELATED_FILE_SNIPPET_CHARS = 1800;
 
 function resolveSearchParam(name) {
   if (typeof window === 'undefined') {
@@ -48,6 +52,17 @@ function buildFileKey(file) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const pathWithSlash = normalizedPath.endsWith('/') ? normalizedPath : `${normalizedPath}/`;
   return `${pathWithSlash}${String(file?.filename || '').trim()}`;
+}
+
+function clipText(value, maxChars) {
+  const text = String(value || '');
+  if (text.length <= maxChars) {
+    return text;
+  }
+
+  const head = Math.floor(maxChars * 0.7);
+  const tail = Math.max(0, maxChars - head);
+  return `${text.slice(0, head)}\n...\n${text.slice(-tail)}`;
 }
 
 function CodeSpaceLayout() {
@@ -111,6 +126,7 @@ function CodeSpaceLayout() {
   const [collaborationParticipants, setCollaborationParticipants] = useState([]);
   const [isCollaborationConnected, setIsCollaborationConnected] = useState(false);
   const [isRealtimeSocketConnected, setIsRealtimeSocketConnected] = useState(false);
+  const [selectedCode, setSelectedCode] = useState('');
 
   const editorCollaboration = useMemo(() => ({
     ...collaboration,
@@ -119,6 +135,7 @@ function CodeSpaceLayout() {
 
   const collaborationSequenceRef = useRef(0);
   const knownSharedMessageIdsRef = useRef(new Set());
+  const realtimeApiRef = useRef(null);
 
   const {
     isRunning: isExecuting,
@@ -150,6 +167,73 @@ function CodeSpaceLayout() {
     clearRemoteConflicts,
     setActiveFileId,
   } = useVirtualFileSystem(userId, collaboration);
+
+  const participantNames = useMemo(() => {
+    return (collaborationParticipants || [])
+      .map((item) => String(item?.actor_name || item?.userName || item?.actor_id || item?.userId || '').trim())
+      .filter(Boolean)
+      .slice(0, 5);
+  }, [collaborationParticipants]);
+
+  const assistContext = useMemo(() => {
+    const activeFileKey = activeFile ? buildFileKey(activeFile) : null;
+
+    const relatedFiles = (openFiles || [])
+      .filter((item) => item && item.id !== activeFileId && !item.is_folder)
+      .slice(0, MAX_ASSIST_RELATED_FILES)
+      .map((item) => ({
+        path: buildFileKey(item),
+        language: String(item.language || '').toLowerCase(),
+        content: clipText(item.content || '', MAX_ASSIST_RELATED_FILE_SNIPPET_CHARS),
+      }))
+      .filter((item) => item.content.trim().length > 0);
+
+    const fileSummary = (files || [])
+      .filter((item) => !item?.is_folder)
+      .slice(0, 24)
+      .map((item) => `${buildFileKey(item)} [${String(item.language || 'plaintext').toLowerCase()}]`)
+      .join('\n');
+
+    const projectContext = clipText(
+      [
+        `Workspace: ${collaboration.workspaceId}`,
+        `Mode: ${collaboration.canPersist ? 'owner' : 'guest'}`,
+        `Active file: ${activeFileKey || 'none'}`,
+        participantNames.length ? `Participants: ${participantNames.join(', ')}` : '',
+        fileSummary ? `Project files:\n${fileSummary}` : '',
+      ].filter(Boolean).join('\n\n'),
+      MAX_ASSIST_PROJECT_CONTEXT_CHARS,
+    );
+
+    const recentChat = (workspaceState.chatHistory || [])
+      .slice(0, 4)
+      .map((item) => `User: ${String(item?.content || '').slice(0, 240)}`);
+    const recentAi = (workspaceState.aiResponses || [])
+      .slice(0, 4)
+      .map((item) => `AI: ${String(item?.content || item?.summary || '').slice(0, 240)}`);
+    const userMemory = clipText(
+      [...recentChat, ...recentAi].filter(Boolean).join('\n'),
+      MAX_ASSIST_USER_MEMORY_CHARS,
+    );
+
+    return {
+      projectContext,
+      userMemory,
+      relatedFiles,
+      selectedCode: clipText(selectedCode || '', 60000),
+    };
+  }, [
+    activeFile,
+    activeFileId,
+    collaboration.canPersist,
+    collaboration.workspaceId,
+    files,
+    openFiles,
+    participantNames,
+    selectedCode,
+    workspaceState.aiResponses,
+    workspaceState.chatHistory,
+  ]);
 
   // Sync active file state for global workspace context
   useEffect(() => {
@@ -214,8 +298,13 @@ function CodeSpaceLayout() {
           continue;
         }
 
-        if (event.event_type === 'user_context' || event.event_type === 'ai_context') {
+        if (
+          event.event_type === 'user_context'
+          || event.event_type === 'ai_context'
+          || event.event_type === 'ai_suggestion'
+        ) {
           const messageText = String(event.payload?.message || '').trim();
+          const metadata = event.payload?.metadata || {};
           if (!messageText) {
             continue;
           }
@@ -226,12 +315,25 @@ function CodeSpaceLayout() {
           }
 
           knownSharedMessageIdsRef.current.add(messageId);
+
+          const remoteSuggestion = String(metadata?.suggestion || '').trim();
+          const remoteDiff = String(metadata?.diff || '').trim();
+          const remoteExplanation = String(metadata?.explanation || messageText).trim();
           setSharedMessages((prev) => [
             ...prev,
             {
               id: messageId,
-              role: event.event_type === 'ai_context' ? 'assistant' : 'user',
-              content: messageText,
+              role: event.event_type === 'user_context' ? 'user' : 'assistant',
+              action: metadata?.action || 'explain',
+              content: remoteExplanation,
+              suggestion: remoteSuggestion,
+              improvedCode: remoteSuggestion,
+              diff: remoteDiff,
+              diffHunks: Array.isArray(metadata?.diff_hunks) ? metadata.diff_hunks : [],
+              requestId: metadata?.request_id || null,
+              baseCodeHash: metadata?.base_code_hash || '',
+              baseCodeLength: Number(metadata?.base_code_length || 0),
+              securitySeverity: metadata?.security_severity || 'none',
               suggestions: [],
               warnings: [],
               isRemote: true,
@@ -343,28 +445,89 @@ function CodeSpaceLayout() {
     }
   }, [activeFileId, updateFileContent]);
 
+  const handleRealtimeReady = useCallback((api) => {
+    realtimeApiRef.current = api || null;
+  }, []);
+
   // Apply AI-generated code into active file and persist it.
-  const handleApplyAssistantCode = useCallback(async (code) => {
+  const handleApplyAssistantCode = useCallback(async (payload) => {
     if (!activeFileId) {
       return;
     }
 
-    updateFileContent(activeFileId, code || '', {
-      source: 'local',
-      persist: collaboration.canPersist,
-    });
+    const suggestion = String(payload?.suggestion || '').trim();
+    if (!suggestion) {
+      return;
+    }
 
-    if (collaboration.canPersist) {
-      await saveFile(activeFileId);
+    const realtimeApi = realtimeApiRef.current;
+    const canApplyWithRealtime = Boolean(
+      collaboration.enabled
+      && realtimeApi
+      && typeof realtimeApi.applySuggestionDiff === 'function'
+      && (realtimeApi.connectionState === 'connected' || realtimeApi.connectionState === 'fallback')
+    );
+
+    if (canApplyWithRealtime) {
+      const applyResult = realtimeApi.applySuggestionDiff({
+        roomId: realtimeApi.roomId,
+        suggestion,
+        baseCode: String(payload?.baseCode || activeFile?.content || ''),
+      });
+
+      if (applyResult?.applied) {
+        workspaceActions.pushExecutionLog({
+          timestamp: new Date().toISOString(),
+          message: applyResult.partial
+            ? 'Applied AI suggestion with partial fuzzy merge (document changed while suggestion was pending).'
+            : 'Applied AI suggestion using Yjs diff transaction.',
+        });
+
+        if (collaboration.canPersist) {
+          await saveFile(activeFileId);
+        }
+      } else {
+        workspaceActions.pushExecutionLog({
+          timestamp: new Date().toISOString(),
+          message: `AI apply warning: ${String(applyResult?.reason || 'could not apply suggestion diff')}.`,
+        });
+
+        updateFileContent(activeFileId, suggestion, {
+          source: 'local',
+          persist: collaboration.canPersist,
+        });
+
+        if (collaboration.canPersist) {
+          await saveFile(activeFileId);
+        }
+      }
+    } else {
+      updateFileContent(activeFileId, suggestion, {
+        source: 'local',
+        persist: collaboration.canPersist,
+      });
+
+      if (collaboration.canPersist) {
+        await saveFile(activeFileId);
+      }
     }
 
     workspaceActions.pushAiResponse({
-      type: 'apply_code',
+      type: 'apply_diff',
       fileId: activeFileId,
       timestamp: new Date().toISOString(),
-      preview: String(code || '').slice(0, 120),
+      requestId: String(payload?.requestId || ''),
+      preview: suggestion.slice(0, 120),
     });
-  }, [activeFileId, collaboration.canPersist, saveFile, updateFileContent, workspaceActions]);
+  }, [
+    activeFile?.content,
+    activeFileId,
+    collaboration.canPersist,
+    collaboration.enabled,
+    saveFile,
+    updateFileContent,
+    workspaceActions,
+  ]);
 
   const handleAssistantInteraction = useCallback((event) => {
     if (!event?.type || !event?.payload) {
@@ -387,7 +550,37 @@ function CodeSpaceLayout() {
     if (collaboration.enabled) {
       const content = String(event.payload.content || '').trim();
       if (content) {
-        const eventType = event.type === 'assistant' ? 'ai_context' : 'user_context';
+        const suggestion = String(event.payload.suggestion || event.payload.improvedCode || '').trim();
+        const diffText = String(event.payload.diff || '').trim();
+        const hasShareableSuggestion = event.type === 'assistant' && Boolean(suggestion);
+        const eventType = hasShareableSuggestion
+          ? 'ai_suggestion'
+          : event.type === 'assistant'
+            ? 'ai_context'
+            : 'user_context';
+
+        const metadata = {
+          action: event.payload.action,
+          intentMode: Boolean(event.payload.intentMode),
+          taskMode: Boolean(event.payload.taskMode),
+          whyBrokeMode: Boolean(event.payload.whyBrokeMode),
+        };
+
+        if (hasShareableSuggestion) {
+          Object.assign(metadata, {
+            suggestion: suggestion.slice(0, 32000),
+            diff: diffText.slice(0, 48000),
+            explanation: content.slice(0, 3000),
+            request_id: String(event.payload.requestId || '').slice(0, 96),
+            base_code_hash: String(event.payload.baseCodeHash || '').slice(0, 96),
+            base_code_length: Number(event.payload.baseCodeLength || 0),
+            security_severity: String(event.payload.securitySeverity || '').slice(0, 32),
+            diff_hunks: Array.isArray(event.payload.diffHunks)
+              ? event.payload.diffHunks.slice(0, 120)
+              : [],
+          });
+        }
+
         void codeFileService.publishCollaborationContext({
           workspaceId: collaboration.workspaceId,
           actorId: collaboration.actorId,
@@ -397,12 +590,7 @@ function CodeSpaceLayout() {
           message: content,
           fileId: activeFileId,
           fileKey: activeFile ? buildFileKey(activeFile) : null,
-          metadata: {
-            action: event.payload.action,
-            intentMode: Boolean(event.payload.intentMode),
-            taskMode: Boolean(event.payload.taskMode),
-            whyBrokeMode: Boolean(event.payload.whyBrokeMode),
-          },
+          metadata,
         }).catch(() => {});
       }
     }
@@ -559,6 +747,8 @@ function CodeSpaceLayout() {
           collaboration={editorCollaboration}
           onCollaborationConnectionChange={setIsRealtimeSocketConnected}
           onCollaborationParticipantsChange={setCollaborationParticipants}
+          onRealtimeReady={handleRealtimeReady}
+          onSelectionChange={setSelectedCode}
         />
 
         <ExecutionPanel
@@ -597,6 +787,7 @@ function CodeSpaceLayout() {
             onApplyCode={handleApplyAssistantCode}
             onInteraction={handleAssistantInteraction}
             sharedMessages={sharedMessages}
+            assistContext={assistContext}
           />
         )}
       </aside>

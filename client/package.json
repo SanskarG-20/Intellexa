@@ -17,6 +17,7 @@
     "@tsparticles/react": "^3.0.0",
     "@tsparticles/slim": "^3.9.1",
     "axios": "^1.9.0",
+    "diff-match-patch": "^1.0.5",
     "gsap": "^3.14.2",
     "monaco-editor": "^0.55.1",
     "react": "^18.3.1",

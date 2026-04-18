@@ -333,6 +333,10 @@ export async function codeAssist(request) {
     action: request.action || 'explain',
     include_context: request.includeContext !== false,
     context: request.context,
+    project_context: request.projectContext,
+    user_memory: request.userMemory,
+    selected_code: request.selectedCode,
+    related_files: Array.isArray(request.relatedFiles) ? request.relatedFiles : [],
     learning_mode: request.learningMode === true,
     max_suggestions: request.maxSuggestions || 5,
   });

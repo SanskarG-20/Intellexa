@@ -4,17 +4,20 @@ code_service.py - AI code assistance and autocomplete orchestration.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
 import time
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from app.core.config import settings
 from app.schemas.code import (
     BugSeverity,
     CodeAction,
+    CodeDiffHunk,
     CodeAssistRequest,
     CodeAssistResponse,
     CodeAutocompleteItem,
@@ -217,6 +220,140 @@ class CodeWorkspaceCodeService:
                             break
 
         return None
+
+    @staticmethod
+    def _compose_explicit_context(request: CodeAssistRequest) -> str:
+        sections: List[str] = []
+
+        context = str(request.context or "").strip()
+        if context:
+            sections.append(f"Client Context:\n{context}")
+
+        project_context = str(request.project_context or "").strip()
+        if project_context:
+            sections.append(f"Project Context:\n{project_context}")
+
+        user_memory = str(request.user_memory or "").strip()
+        if user_memory:
+            sections.append(f"User Memory:\n{user_memory}")
+
+        selected_code = str(request.selected_code or "").strip()
+        if selected_code:
+            sections.append(f"Selected Code Focus:\n{selected_code}")
+
+        related_files = list(request.related_files or [])
+        if related_files:
+            lines = []
+            for item in related_files[:8]:
+                path = str(item.get("path") or "unknown").strip()
+                language = str(item.get("language") or "").strip().lower()
+                content = str(item.get("content") or "").strip()
+                if not content:
+                    continue
+
+                label = f"{path} ({language})" if language else path
+                clipped = content[:2200]
+                lines.append(f"- {label}:\n{clipped}")
+
+            if lines:
+                sections.append("Related Files:\n" + "\n\n".join(lines))
+
+        return "\n\n".join(sections).strip()
+
+    @staticmethod
+    def _extract_primary_suggestion_code(response: CodeAssistResponse) -> str:
+        for candidate in [
+            response.suggestion,
+            response.improved_code,
+            response.updated_code,
+            response.optimized_code,
+        ]:
+            value = str(candidate or "").strip()
+            if value:
+                return value
+        return ""
+
+    @staticmethod
+    def _build_unified_diff(base_code: str, suggestion_code: str, language: str) -> str:
+        before = str(base_code or "")
+        after = str(suggestion_code or "")
+        if before == after:
+            return ""
+
+        filename = f"code.{str(language or 'txt').lower()}"
+        diff_lines = difflib.unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=f"a/{filename}",
+            tofile=f"b/{filename}",
+            n=3,
+        )
+        diff_text = "".join(diff_lines)
+        if len(diff_text) > 120000:
+            return diff_text[:120000]
+        return diff_text
+
+    @staticmethod
+    def _build_diff_hunks(base_code: str, suggestion_code: str) -> List[CodeDiffHunk]:
+        before = str(base_code or "")
+        after = str(suggestion_code or "")
+        if before == after:
+            return []
+
+        matcher = difflib.SequenceMatcher(a=before, b=after, autojunk=False)
+        hunks: List[CodeDiffHunk] = []
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                continue
+
+            change_type = "replace"
+            if tag == "insert":
+                change_type = "insert"
+            elif tag == "delete":
+                change_type = "delete"
+
+            hunks.append(
+                CodeDiffHunk(
+                    change_type=change_type,
+                    start_offset=i1,
+                    end_offset=i2,
+                    replacement=after[j1:j2],
+                )
+            )
+
+            if len(hunks) >= 200:
+                break
+
+        return hunks
+
+    def _finalize_assist_response(
+        self,
+        response: CodeAssistResponse,
+        *,
+        base_code: str,
+    ) -> CodeAssistResponse:
+        base = str(base_code or "")
+        suggestion = self._extract_primary_suggestion_code(response)
+        diff_text = ""
+        diff_hunks: List[CodeDiffHunk] = []
+
+        if suggestion:
+            diff_text = self._build_unified_diff(base, suggestion, response.language)
+            diff_hunks = self._build_diff_hunks(base, suggestion)
+
+        request_id = str(response.request_id or uuid4().hex)
+        base_hash = sha256(base.encode("utf-8")).hexdigest()
+
+        return response.model_copy(
+            update={
+                "request_id": request_id,
+                "suggestion": suggestion or None,
+                "diff": diff_text or None,
+                "diff_hunks": diff_hunks,
+                "base_code_hash": base_hash,
+                "base_code_length": len(base),
+            }
+        )
 
     @staticmethod
     def _intent_system_prompt(language: str) -> str:
@@ -833,6 +970,8 @@ class CodeWorkspaceCodeService:
         if len(code) > settings.CODE_ASSIST_MAX_CODE_CHARS:
             code = self._clip(code, settings.CODE_ASSIST_MAX_CODE_CHARS)
 
+        explicit_context = self._compose_explicit_context(request)
+
         adaptation_context: Dict[str, Any] = {
             "signature": "none",
             "guidance": "",
@@ -861,7 +1000,9 @@ class CodeWorkspaceCodeService:
                 "action": request.action,
                 "code": sha256(code.encode("utf-8")).hexdigest(),
                 "context": request.include_context,
-                "extra_context": request.context or "",
+                "extra_context": explicit_context,
+                "selected_code": request.selected_code or "",
+                "related_files": request.related_files,
                 "learning_mode": bool(request.learning_mode),
                 "pattern_signature": adaptation_context.get("signature") or "none",
             },
@@ -877,11 +1018,11 @@ class CodeWorkspaceCodeService:
                 user_id=user_id,
                 prompt=prompt,
                 code=code,
-                explicit_context=request.context,
+                explicit_context=explicit_context,
                 top_k=6,
             )
-        elif request.context:
-            user_knowledge = self._clip(request.context, 1200)
+        elif explicit_context:
+            user_knowledge = self._clip(explicit_context, 2200)
 
         user_knowledge = self._merge_knowledge_with_pattern_guidance(
             user_knowledge,
@@ -938,6 +1079,8 @@ class CodeWorkspaceCodeService:
                 cached=False,
             )
 
+            response = self._finalize_assist_response(response, base_code=code)
+
             self._cache_set(cache_key, response)
             return response
 
@@ -966,6 +1109,7 @@ class CodeWorkspaceCodeService:
                     security_severity=BugSeverity.NONE,
                     cached=False,
                 )
+                response = self._finalize_assist_response(response, base_code=code)
                 self._cache_set(cache_key, response)
                 return response
 
@@ -1015,6 +1159,8 @@ class CodeWorkspaceCodeService:
                 cached=False,
             )
 
+            response = self._finalize_assist_response(response, base_code=code)
+
             self._cache_set(cache_key, response)
             return response
 
@@ -1055,6 +1201,8 @@ class CodeWorkspaceCodeService:
                 }
             )
 
+            response = self._finalize_assist_response(response, base_code=code)
+
             self._cache_set(cache_key, response)
             return response
 
@@ -1064,7 +1212,12 @@ class CodeWorkspaceCodeService:
                 code=code,
                 task=(
                     f"User intent: {prompt}\n"
-                    "Decide the best algorithm and structure for optimization and return optimized code."
+                    + (
+                        f"Selected focus:\n{request.selected_code}\n"
+                        if str(request.selected_code or "").strip()
+                        else ""
+                    )
+                    + "Decide the best algorithm and structure for optimization and return optimized code."
                 ),
                 max_code_chars=settings.CODE_ASSIST_MAX_CODE_CHARS,
             )
@@ -1094,13 +1247,23 @@ class CodeWorkspaceCodeService:
                 }
             )
 
+            response = self._finalize_assist_response(response, base_code=code)
+
             self._cache_set(cache_key, response)
             return response
+
+        assist_task = prompt
+        if str(request.selected_code or "").strip():
+            assist_task = (
+                f"{prompt}\n\n"
+                "Focus on improving the selected region while returning a full-file suggestion.\n"
+                f"Selected region:\n{request.selected_code}"
+            )
 
         composite_prompt = self.context_service.build_prompt(
             user_knowledge=user_knowledge,
             code=code,
-            task=prompt,
+            task=assist_task,
             max_code_chars=settings.CODE_ASSIST_MAX_CODE_CHARS,
         )
 
@@ -1137,6 +1300,8 @@ class CodeWorkspaceCodeService:
             warnings=[],
             cached=False,
         )
+
+        response = self._finalize_assist_response(response, base_code=code)
 
         self._cache_set(cache_key, response)
         return response

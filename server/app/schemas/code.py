@@ -13,6 +13,14 @@ from pydantic import BaseModel, Field, field_validator
 MAX_CODE_ASSIST_PROMPT_CHARS = 4000
 MAX_CODE_ASSIST_CODE_CHARS = 120000
 MAX_CODE_ASSIST_CONTEXT_CHARS = 8000
+MAX_CODE_ASSIST_PROJECT_CONTEXT_CHARS = 12000
+MAX_CODE_ASSIST_USER_MEMORY_CHARS = 12000
+MAX_CODE_ASSIST_SELECTED_CODE_CHARS = 60000
+MAX_CODE_ASSIST_RELATED_FILES = 8
+MAX_CODE_ASSIST_RELATED_FILE_PATH_CHARS = 500
+MAX_CODE_ASSIST_RELATED_FILE_SNIPPET_CHARS = 4000
+MAX_CODE_ASSIST_DIFF_CHARS = 120000
+MAX_CODE_ASSIST_DIFF_HUNKS = 200
 MAX_AUTOCOMPLETE_SUGGESTIONS = 10
 MAX_EXECUTION_CODE_CHARS = 20000
 MAX_EXECUTION_STDIN_CHARS = 4000
@@ -89,6 +97,7 @@ class CollaborationEventType(str, Enum):
     FILE_DELETED = "file_deleted"
     USER_CONTEXT = "user_context"
     AI_CONTEXT = "ai_context"
+    AI_SUGGESTION = "ai_suggestion"
     SYSTEM = "system"
 
 
@@ -195,6 +204,26 @@ class CodeAssistRequest(BaseModel):
         max_length=MAX_CODE_ASSIST_CONTEXT_CHARS,
         description="Optional additional context provided by the client",
     )
+    project_context: Optional[str] = Field(
+        default=None,
+        max_length=MAX_CODE_ASSIST_PROJECT_CONTEXT_CHARS,
+        description="Project-level context summary provided by the client",
+    )
+    user_memory: Optional[str] = Field(
+        default=None,
+        max_length=MAX_CODE_ASSIST_USER_MEMORY_CHARS,
+        description="Short user-memory context for personalization",
+    )
+    selected_code: Optional[str] = Field(
+        default=None,
+        max_length=MAX_CODE_ASSIST_SELECTED_CODE_CHARS,
+        description="Optional selected code region (fallbacks to full code when absent)",
+    )
+    related_files: List[Dict[str, str]] = Field(
+        default_factory=list,
+        max_length=MAX_CODE_ASSIST_RELATED_FILES,
+        description="Optional related file snippets for context",
+    )
     learning_mode: bool = Field(
         default=False,
         description="Enable deep educational explanation mode for code understanding",
@@ -208,6 +237,44 @@ class CodeAssistRequest(BaseModel):
         if not normalized:
             raise ValueError("prompt must not be empty")
         return normalized
+
+    @field_validator("project_context", "user_memory", "selected_code", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @field_validator("related_files", mode="before")
+    @classmethod
+    def normalize_related_files(cls, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("related_files must be a list")
+
+        trimmed = []
+        for item in value[:MAX_CODE_ASSIST_RELATED_FILES]:
+            if not isinstance(item, dict):
+                continue
+
+            path = str(item.get("path") or item.get("filename") or "").strip().replace("\\", "/")
+            language = str(item.get("language") or "").strip().lower()
+            content = str(item.get("content") or item.get("snippet") or "").strip()
+
+            if not path and not content:
+                continue
+
+            trimmed.append(
+                {
+                    "path": path[:MAX_CODE_ASSIST_RELATED_FILE_PATH_CHARS],
+                    "language": language[:50],
+                    "content": content[:MAX_CODE_ASSIST_RELATED_FILE_SNIPPET_CHARS],
+                }
+            )
+
+        return trimmed
 
 
 class CodeSuggestion(BaseModel):
@@ -434,8 +501,31 @@ class SecurityScanResponse(BaseModel):
     severity: BugSeverity = BugSeverity.NONE
 
 
+class CodeDiffHunk(BaseModel):
+    """One code-diff hunk represented as a char-offset replacement."""
+
+    change_type: str = Field(..., description="insert | delete | replace")
+    start_offset: int = Field(..., ge=0)
+    end_offset: int = Field(..., ge=0)
+    replacement: str = ""
+
+    @field_validator("change_type")
+    @classmethod
+    def normalize_change_type(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized not in {"insert", "delete", "replace"}:
+            raise ValueError("change_type must be insert, delete, or replace")
+        return normalized
+
+
 class CodeAssistResponse(BaseModel):
     """Schema for code assistance response."""
+    request_id: Optional[str] = None
+    suggestion: Optional[str] = None
+    diff: Optional[str] = Field(default=None, max_length=MAX_CODE_ASSIST_DIFF_CHARS)
+    diff_hunks: List[CodeDiffHunk] = Field(default_factory=list, max_length=MAX_CODE_ASSIST_DIFF_HUNKS)
+    base_code_hash: Optional[str] = None
+    base_code_length: int = Field(default=0, ge=0)
     updated_code: Optional[str] = None
     improved_code: Optional[str] = None
     optimized_code: Optional[str] = None

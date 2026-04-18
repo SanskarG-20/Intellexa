@@ -49,6 +49,8 @@ function CodeEditor({
   collaboration,
   onCollaborationConnectionChange,
   onCollaborationParticipantsChange,
+  onRealtimeReady,
+  onSelectionChange,
 }) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
@@ -71,7 +73,11 @@ function CodeEditor({
     && monacoInstance,
   );
 
-  const { connectionState: collaborationConnectionState } = useRealtimeCollaboration({
+  const {
+    connectionState: collaborationConnectionState,
+    roomId: collaborationRoomId,
+    applySuggestionDiff,
+  } = useRealtimeCollaboration({
     enabled: collaborationEnabled,
     workspaceId: collaboration?.workspaceId,
     ownerUserId: collaboration?.ownerUserId,
@@ -87,6 +93,23 @@ function CodeEditor({
     onConnectionChange: onCollaborationConnectionChange,
     onParticipantsChange: onCollaborationParticipantsChange,
   });
+
+  useEffect(() => {
+    if (typeof onRealtimeReady !== 'function') {
+      return;
+    }
+
+    onRealtimeReady({
+      roomId: collaborationRoomId,
+      connectionState: collaborationConnectionState,
+      applySuggestionDiff,
+    });
+  }, [
+    applySuggestionDiff,
+    collaborationConnectionState,
+    collaborationRoomId,
+    onRealtimeReady,
+  ]);
 
   const getDebouncedAutocomplete = useCallback((payload) => {
     return new Promise((resolve) => {
@@ -181,6 +204,22 @@ function CodeEditor({
 
     editor.focus();
     registerAutocompleteProvider();
+
+    editor.onDidChangeCursorSelection((event) => {
+      const model = editor.getModel();
+      if (!model || typeof onSelectionChange !== 'function') {
+        return;
+      }
+
+      const selection = event.selection;
+      if (!selection || selection.isEmpty()) {
+        onSelectionChange('');
+        return;
+      }
+
+      const selectedText = model.getValueInRange(selection);
+      onSelectionChange(selectedText || '');
+    });
   }, [onRunCode, onSave, registerAutocompleteProvider]);
 
   const handleChange = useCallback((value) => {

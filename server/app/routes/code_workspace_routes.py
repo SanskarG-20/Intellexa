@@ -148,7 +148,7 @@ async def post_collaboration_context(
     request: CollaborationContextPublishRequest,
     user_id: str = Depends(_resolve_user_id),
 ):
-    """Canonical endpoint for publishing shared user/AI context updates."""
+    """Canonical endpoint for publishing shared user/AI context and suggestion updates."""
     if request.event_type in {CollaborationEventType.FILE_SYNC, CollaborationEventType.FILE_DELETED}:
         raise HTTPException(status_code=400, detail="Use file APIs for file sync events.")
 

@@ -6,7 +6,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import useCodeAssist from '../../hooks/useCodeAssist';
 
-function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, sharedMessages = [] }) {
+function CodeAssistant({
+  activeFile,
+  isLoading,
+  onApplyCode,
+  onInteraction,
+  sharedMessages = [],
+  assistContext = null,
+}) {
   const [prompt, setPrompt] = useState('');
   const [action, setAction] = useState('explain');
   const [learningMode, setLearningMode] = useState(false);
@@ -61,6 +68,8 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
     if (!prompt.trim()) return;
 
     const normalizedPrompt = prompt.trim();
+    const requestBaseCode = String(activeFile?.content || '');
+    const selectedCode = String(assistContext?.selectedCode || '').trim() || undefined;
     const shouldRegenerateTaskPlan = (
       taskMode
       && Boolean(taskSessionId)
@@ -86,10 +95,14 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
     
     // Get AI response
     const result = await assist({
-      code: activeFile?.content || '',
+      code: requestBaseCode,
       language: activeFile?.language || 'javascript',
       prompt: normalizedPrompt,
       action,
+      selectedCode,
+      projectContext: assistContext?.projectContext,
+      userMemory: assistContext?.userMemory,
+      relatedFiles: assistContext?.relatedFiles,
       learningMode,
       taskMode,
       fileId: activeFile?.id,
@@ -121,7 +134,14 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
         content: result.task_mode
           ? (result.summary || result.title || 'Task plan created.')
           : result.explanation,
-        improvedCode: result.optimized_code || result.updated_code || result.improved_code,
+        requestId: result.request_id || null,
+        suggestion: result.suggestion || result.optimized_code || result.updated_code || result.improved_code || '',
+        diff: result.diff || '',
+        diffHunks: result.diff_hunks || [],
+        baseCodeHash: result.base_code_hash || '',
+        baseCodeLength: Number(result.base_code_length || 0),
+        baseCode: requestBaseCode,
+        improvedCode: result.suggestion || result.optimized_code || result.updated_code || result.improved_code,
         testCases: result.test_cases || [],
         edgeCases: result.edge_cases || [],
         securityFindings: result.security_findings || [],
@@ -282,11 +302,31 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
   }, []);
 
   // Apply improved code
-  const handleApplyCode = useCallback((code) => {
-    if (activeFile && code && typeof onApplyCode === 'function') {
-      onApplyCode(code);
+  const handleApplyCode = useCallback((message) => {
+    if (!activeFile || typeof onApplyCode !== 'function') {
+      return;
     }
-  }, [activeFile, onApplyCode]);
+
+    const suggestion = String(
+      message?.suggestion
+      || message?.improvedCode
+      || ''
+    );
+    if (!suggestion) {
+      return;
+    }
+
+    onApplyCode({
+      suggestion,
+      diff: message?.diff || '',
+      diffHunks: Array.isArray(message?.diffHunks) ? message.diffHunks : [],
+      baseCode: String(message?.baseCode || ''),
+      baseCodeHash: String(message?.baseCodeHash || ''),
+      requestId: String(message?.requestId || ''),
+      action: String(message?.action || action),
+      explanation: String(message?.content || ''),
+    });
+  }, [action, activeFile, onApplyCode]);
 
   return (
     <div className="code-assistant">
@@ -397,7 +437,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
         {messages.length === 0 ? (
           <div className="code-assistant-welcome">
             <h4>AI Code Assistant</h4>
-            <p>Ask me to explain, generate, test, secure, fix, or refactor code.</p>
+            <p>Ask AI for suggestions and review diffs before applying changes safely.</p>
             {activeFile?.content && (
               <p className="code-assistant-context-hint">
                 I have access to your current file and knowledge context.
@@ -408,7 +448,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
           messages.map((message) => (
             <div
               key={message.id}
-              className={`code-assistant-message ${message.role}`}
+              className={`code-assistant-message ${message.role} ${message.role === 'assistant' ? 'assistant-msg' : 'user-msg'}`}
             >
               <div className="message-header">
                 <span className="message-role">
@@ -428,6 +468,15 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
               <div className="message-content">
                 {message.content}
               </div>
+
+              {message.diff && (
+                <div className="suggestions-section">
+                  <span className="suggestions-title">Diff Viewer</span>
+                  <pre className="code-diff-viewer">
+                    <code>{message.diff}</code>
+                  </pre>
+                </div>
+              )}
 
               {message.intentMode && message.intentDecision && (
                 <div className="suggestions-section">
@@ -548,12 +597,12 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
               {message.improvedCode && (
                 <div className="improved-code-section">
                   <div className="improved-code-header">
-                    <span>{message.action === 'test' || message.testCases?.length > 0 ? 'Generated Tests' : 'Improved Code'}</span>
+                    <span>{message.action === 'test' || message.testCases?.length > 0 ? 'Generated Tests' : 'Suggested Code'}</span>
                     <button
                       className="apply-code-btn"
-                      onClick={() => handleApplyCode(message.improvedCode)}
+                      onClick={() => handleApplyCode(message)}
                     >
-                      Apply
+                      Apply Changes
                     </button>
                   </div>
                   <pre className="improved-code">
@@ -714,7 +763,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
           className="code-assistant-submit"
           disabled={isAssistLoading || !prompt.trim()}
         >
-          {isAssistLoading ? '...' : 'Send'}
+          {isAssistLoading ? '...' : 'Ask AI'}
         </button>
       </form>
 

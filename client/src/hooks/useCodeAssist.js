@@ -91,6 +91,10 @@ export function useCodeAssist() {
             action: request.action || CodeAction.EXPLAIN,
             includeContext: request.includeContext !== false,
             context: request.context,
+            projectContext: request.projectContext,
+            userMemory: request.userMemory,
+            selectedCode: request.selectedCode,
+            relatedFiles: request.relatedFiles,
             learningMode: request.learningMode === true,
             maxSuggestions: request.maxSuggestions || 5,
           });

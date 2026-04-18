@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import DiffMatchPatch from 'diff-match-patch';
 import * as Y from 'yjs';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import { MonacoBinding } from 'y-monaco';
@@ -16,6 +17,7 @@ const MAX_PENDING_UPDATES = 800;
 const REMOTE_UPDATE_ORIGIN = 'socket-remote';
 const SNAPSHOT_UPDATE_ORIGIN = 'socket-snapshot';
 const REMOTE_AWARENESS_ORIGIN = 'socket-awareness-remote';
+const AI_APPLY_ORIGIN = 'ai-apply-diff';
 
 const USER_COLORS = [
   '#4F8EF7',
@@ -309,6 +311,94 @@ export function useRealtimeCollaboration({
         flushPendingUpdates(roomEntry, false);
       }, OUTGOING_FLUSH_MS);
     }
+  }, [flushPendingUpdates]);
+
+  const applySuggestionDiff = useCallback((payload = {}) => {
+    const roomId = String(payload.roomId || activeRoomIdRef.current || '').trim();
+    if (!roomId) {
+      return { applied: false, reason: 'missing_room' };
+    }
+
+    const roomEntry = docsRef.current.get(roomId);
+    if (!roomEntry) {
+      return { applied: false, reason: 'room_not_found' };
+    }
+
+    const suggestion = String(payload.suggestion || '').trim();
+    if (!suggestion) {
+      return { applied: false, reason: 'empty_suggestion' };
+    }
+
+    const currentCode = roomEntry.ytext.toString();
+    const baseCode = String(payload.baseCode || currentCode);
+    if (suggestion === currentCode) {
+      return { applied: false, reason: 'no_changes' };
+    }
+
+    const dmp = new DiffMatchPatch();
+    dmp.Match_Threshold = 0.35;
+    dmp.Match_Distance = 2000;
+
+    const patches = dmp.patch_make(baseCode, suggestion);
+    if (!patches.length) {
+      return { applied: false, reason: 'no_patches' };
+    }
+
+    const [patchedText, patchResults] = dmp.patch_apply(patches, currentCode);
+    const totalPatches = patchResults.length;
+    const appliedPatches = patchResults.filter(Boolean).length;
+
+    if (!totalPatches || appliedPatches === 0) {
+      return {
+        applied: false,
+        reason: 'conflict',
+        appliedPatches,
+        totalPatches,
+      };
+    }
+
+    if (patchedText === currentCode) {
+      return { applied: false, reason: 'no_changes_after_merge' };
+    }
+
+    const diffs = dmp.diff_main(currentCode, patchedText);
+    dmp.diff_cleanupEfficiency(diffs);
+
+    roomEntry.ydoc.transact(() => {
+      let cursor = 0;
+      for (const diffItem of diffs) {
+        const op = Number(diffItem?.[0]);
+        const text = String(diffItem?.[1] || '');
+        if (!text) {
+          continue;
+        }
+
+        if (op === 0) {
+          cursor += text.length;
+          continue;
+        }
+
+        if (op === -1) {
+          roomEntry.ytext.delete(cursor, text.length);
+          continue;
+        }
+
+        if (op === 1) {
+          roomEntry.ytext.insert(cursor, text);
+          cursor += text.length;
+        }
+      }
+    }, AI_APPLY_ORIGIN);
+
+    flushPendingUpdates(roomEntry, false);
+
+    return {
+      applied: true,
+      partial: appliedPatches < totalPatches,
+      appliedPatches,
+      totalPatches,
+      roomId,
+    };
   }, [flushPendingUpdates]);
 
   const joinRoom = useCallback((roomEntry) => {
@@ -656,6 +746,7 @@ export function useRealtimeCollaboration({
     connectionState,
     participants,
     roomId: roomMeta?.roomId || null,
+    applySuggestionDiff,
   };
 }
 
