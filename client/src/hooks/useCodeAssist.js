@@ -16,6 +16,7 @@ export const CodeAction = {
   REFACTOR: 'refactor',
   LEARN: 'learn',
   TASK: 'task',
+  WHY_BROKE: 'why_broke',
 };
 
 /**
@@ -36,6 +37,7 @@ export function useCodeAssist() {
     
     try {
       const isTaskMode = request.taskMode === true || request.action === CodeAction.TASK;
+      const isWhyBroke = request.versionIntelligence === true || request.action === CodeAction.WHY_BROKE;
 
       const result = isTaskMode
         ? await codeFileService.taskModeBuild({
@@ -49,6 +51,36 @@ export function useCodeAssist() {
             activeStepId: request.activeStepId,
             regeneratePlan: request.regeneratePlan === true,
           })
+        : isWhyBroke
+          ? await (async () => {
+              if (!request.fileId) {
+                throw new Error('fileId is required for Version Intelligence break analysis.');
+              }
+
+              const analysis = await codeFileService.whyDidThisBreak({
+                fileId: request.fileId,
+                question: request.prompt || 'Why did this break?',
+                failureContext: request.failureContext,
+                baselineVersionId: request.baselineVersionId,
+                currentVersionId: request.currentVersionId,
+              });
+
+              return {
+                explanation: analysis.answer,
+                suggestions: (analysis.causes || []).map((cause) => ({
+                  title: cause.title || 'Possible cause',
+                  description: cause.recommendation || cause.evidence || '',
+                })),
+                warnings: [],
+                context_used: analysis.context_used === true,
+                context_sources: [],
+                action: request.action || CodeAction.WHY_BROKE,
+                language: request.language || 'javascript',
+                break_causes: analysis.causes || [],
+                version_compare: analysis.compare || null,
+                version_intelligence: true,
+              };
+            })()
         : await codeFileService.codeAssist({
             code: request.code || '',
             language: request.language || 'javascript',
@@ -132,6 +164,29 @@ export function useCodeAssist() {
   }, [assist]);
 
   /**
+   * Version Intelligence root-cause analysis.
+   */
+  const whyBroke = useCallback(async ({
+    fileId,
+    prompt = 'Why did this break?',
+    language = 'javascript',
+    failureContext,
+    baselineVersionId,
+    currentVersionId,
+  }) => {
+    return assist({
+      fileId,
+      language,
+      prompt,
+      action: CodeAction.WHY_BROKE,
+      versionIntelligence: true,
+      failureContext,
+      baselineVersionId,
+      currentVersionId,
+    });
+  }, [assist]);
+
+  /**
    * Learning Mode deep explanation
    */
   const learn = useCallback(async (code, language, prompt = '') => {
@@ -170,6 +225,7 @@ export function useCodeAssist() {
     fix,
     refactor,
     learn,
+    whyBroke,
     clearResponse,
     clearHistory,
   };

@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     TASK_MODE_SESSION_TTL_SECONDS: int = 3600
     TASK_MODE_MAX_SESSIONS: int = 1000
 
+    # Version Intelligence Settings
+    VERSION_INTELLIGENCE_MAX_LIST_LIMIT: int = 100
+    VERSION_INTELLIGENCE_MAX_DIFF_CHARS: int = 60000
+
     # Project Refactor Engine Settings
     PROJECT_REFACTOR_CACHE_TTL_SECONDS: int = 180
     PROJECT_REFACTOR_CACHE_MAX_ITEMS: int = 200

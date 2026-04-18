@@ -6,17 +6,23 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.controllers.code_workspace_controller import code_workspace_controller
 from app.core.config import settings
 from app.schemas.code import (
+    CodeBreakAnalysisRequest,
+    CodeBreakAnalysisResponse,
     BugPredictionRequest,
     BugPredictionResponse,
     CodeAssistRequest,
     CodeAssistResponse,
     CodeAutocompleteRequest,
     CodeAutocompleteResponse,
+    CodeVersionCompareRequest,
+    CodeVersionCompareResponse,
+    CodeVersionHistoryResponse,
+    CodeVersionSnapshotResponse,
     CodeExecutionRequest,
     CodeExecutionResponse,
     LearningModeRequest,
@@ -26,6 +32,7 @@ from app.schemas.code import (
     TaskModeRequest,
     TaskModeResponse,
 )
+from app.services.code_workspace.version_intelligence_service import version_intelligence_service
 
 
 router = APIRouter(tags=["Code Workspace"])
@@ -143,3 +150,73 @@ async def post_task_mode_versioned(
 ):
     """Versioned alias for AI Project Builder Task Mode."""
     return await code_workspace_controller.task_mode_build(request, user_id=user_id)
+
+
+@router.get("/version-intelligence/files/{file_id}/versions", response_model=CodeVersionHistoryResponse)
+async def get_file_versions(
+    file_id: str,
+    limit: int = 30,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for tracked file versions."""
+    try:
+        return version_intelligence_service.list_versions(
+            user_id=user_id,
+            file_id=file_id,
+            limit=limit,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Version listing failed: {str(exc)}") from exc
+
+
+@router.get(
+    "/version-intelligence/files/{file_id}/versions/{version_id}",
+    response_model=CodeVersionSnapshotResponse,
+)
+async def get_file_version(
+    file_id: str,
+    version_id: str,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for one file version snapshot."""
+    try:
+        snapshot = version_intelligence_service.get_version_snapshot(
+            user_id=user_id,
+            file_id=file_id,
+            version_id=version_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Version fetch failed: {str(exc)}") from exc
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    return snapshot
+
+
+@router.post("/version-intelligence/compare", response_model=CodeVersionCompareResponse)
+async def post_version_compare(
+    request: CodeVersionCompareRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for version diff + impact summary."""
+    try:
+        return version_intelligence_service.compare_versions(user_id=user_id, request=request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Version compare failed: {str(exc)}") from exc
+
+
+@router.post("/version-intelligence/why-broke", response_model=CodeBreakAnalysisResponse)
+async def post_version_why_broke(
+    request: CodeBreakAnalysisRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for answering: Why did this break?"""
+    try:
+        return version_intelligence_service.why_did_this_break(user_id=user_id, request=request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Break analysis failed: {str(exc)}") from exc

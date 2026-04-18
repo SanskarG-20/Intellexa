@@ -13,6 +13,8 @@ from app.db.supabase import supabase
 from app.core.config import settings
 from app.controllers.code_workspace_controller import code_workspace_controller
 from app.schemas.code import (
+    CodeBreakAnalysisRequest,
+    CodeBreakAnalysisResponse,
     CodeFileCreate,
     CodeFileUpdate,
     CodeFileInfo,
@@ -24,9 +26,14 @@ from app.schemas.code import (
     CodeFileImportItem,
     CodeAssistRequest,
     CodeAssistResponse,
+    CodeVersionCompareRequest,
+    CodeVersionCompareResponse,
+    CodeVersionHistoryResponse,
+    CodeVersionSnapshotResponse,
     TaskModeRequest,
     TaskModeResponse,
 )
+from app.services.code_workspace.version_intelligence_service import version_intelligence_service
 
 
 router = APIRouter(prefix="/api/v1/code", tags=["Code Space"])
@@ -175,6 +182,19 @@ async def get_code_file(
             )
         
         f = result.data[0]
+
+        # Track initial version snapshot for newly created files.
+        if not file.is_folder:
+            try:
+                version_intelligence_service.track_version(
+                    user_id=user_id,
+                    file_id=file_id,
+                    content=file.content,
+                    language=file.language,
+                    reason="file_created",
+                )
+            except Exception:
+                pass
         
         return CodeFileDetail(
             id=f['id'],
@@ -294,6 +314,11 @@ async def update_code_file(
                 status_code=404,
                 detail="File not found"
             )
+
+        existing_file = existing.data[0]
+        existing_content = str(existing_file.get('content') or '')
+        existing_language = str(existing_file.get('language') or 'plaintext')
+        existing_filename = str(existing_file.get('filename') or '')
         
         # Build update data
         update_data = {'updated_at': datetime.utcnow().isoformat()}
@@ -316,6 +341,32 @@ async def update_code_file(
             )
         
         f = result.data[0]
+
+        # Track version snapshots for content edits and structural changes.
+        try:
+            version_intelligence_service.track_version(
+                user_id=user_id,
+                file_id=file_id,
+                content=existing_content,
+                language=existing_language,
+                reason="before_update",
+            )
+
+            reason = "file_content_updated"
+            if update.filename is not None and update.filename != existing_filename:
+                reason = "file_renamed"
+            if update.language is not None and update.language != existing_language:
+                reason = "language_changed"
+
+            version_intelligence_service.track_version(
+                user_id=user_id,
+                file_id=file_id,
+                content=f.get('content') or '',
+                language=f.get('language') or existing_language,
+                reason=reason,
+            )
+        except Exception:
+            pass
         
         return CodeFileDetail(
             id=f['id'],
@@ -440,6 +491,17 @@ async def import_code_files(
                     created_at=datetime.fromisoformat(f['created_at'].replace('Z', '+00:00')),
                     updated_at=datetime.fromisoformat(f['updated_at'].replace('Z', '+00:00')),
                 ))
+
+                try:
+                    version_intelligence_service.track_version(
+                        user_id=user_id,
+                        file_id=f['id'],
+                        content=file_item.content,
+                        language=language,
+                        reason="file_imported",
+                    )
+                except Exception:
+                    pass
         except Exception as e:
             errors.append(f"{file_item.filename}: {str(e)}")
     
@@ -449,6 +511,74 @@ async def import_code_files(
         files=imported_files,
         errors=errors if errors else None
     )
+
+
+@router.get("/files/{file_id}/versions", response_model=CodeVersionHistoryResponse)
+async def list_file_versions(
+    file_id: str,
+    user_id: str = Depends(_get_user_id),
+    limit: int = 30,
+):
+    """List tracked versions for a file (newest first)."""
+    safe_limit = max(1, min(int(limit), settings.VERSION_INTELLIGENCE_MAX_LIST_LIMIT))
+    try:
+        return version_intelligence_service.list_versions(
+            user_id=user_id,
+            file_id=file_id,
+            limit=safe_limit,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list versions: {str(e)}")
+
+
+@router.get("/files/{file_id}/versions/{version_id}", response_model=CodeVersionSnapshotResponse)
+async def get_file_version(
+    file_id: str,
+    version_id: str,
+    user_id: str = Depends(_get_user_id),
+):
+    """Get a specific version snapshot for a file."""
+    try:
+        snapshot = version_intelligence_service.get_version_snapshot(
+            user_id=user_id,
+            file_id=file_id,
+            version_id=version_id,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch version: {str(e)}")
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    return snapshot
+
+
+@router.post("/versions/compare", response_model=CodeVersionCompareResponse)
+async def compare_versions(
+    request: CodeVersionCompareRequest,
+    user_id: str = Depends(_get_user_id),
+):
+    """Compare two versions and return unified diff + impact summary."""
+    try:
+        return version_intelligence_service.compare_versions(user_id=user_id, request=request)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to compare versions: {str(e)}")
+
+
+@router.post("/versions/why-broke", response_model=CodeBreakAnalysisResponse)
+async def why_did_this_break(
+    request: CodeBreakAnalysisRequest,
+    user_id: str = Depends(_get_user_id),
+):
+    """Analyze recent version changes and answer: Why did this break?"""
+    try:
+        return version_intelligence_service.why_did_this_break(user_id=user_id, request=request)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Break analysis failed: {str(e)}")
 
 
 # ============================================================================

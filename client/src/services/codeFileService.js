@@ -146,6 +146,47 @@ export async function getCodeFile(fileId) {
 }
 
 /**
+ * List version history for a file.
+ */
+export async function listFileVersions(fileId, options = {}) {
+  const { limit = 30 } = options;
+  return requestWithFallback('get', `${CODE_API_PREFIX}/files/${fileId}/versions`, undefined, {
+    params: { limit },
+  });
+}
+
+/**
+ * Get one specific version snapshot for a file.
+ */
+export async function getFileVersion(fileId, versionId) {
+  return requestWithFallback('get', `${CODE_API_PREFIX}/files/${fileId}/versions/${versionId}`);
+}
+
+/**
+ * Compare two versions of a file.
+ */
+export async function compareFileVersions(request) {
+  return requestWithFallback('post', `${CODE_API_PREFIX}/versions/compare`, {
+    file_id: request.fileId,
+    from_version_id: request.fromVersionId || null,
+    to_version_id: request.toVersionId || null,
+  });
+}
+
+/**
+ * Ask version intelligence why a change likely broke behavior.
+ */
+export async function whyDidThisBreak(request) {
+  return requestWithFallback('post', `${CODE_API_PREFIX}/versions/why-broke`, {
+    file_id: request.fileId,
+    question: request.question || 'Why did this break?',
+    failure_context: request.failureContext,
+    baseline_version_id: request.baselineVersionId || null,
+    current_version_id: request.currentVersionId || null,
+  });
+}
+
+/**
  * Create a new code file
  */
 export async function createCodeFile(file) {
@@ -342,6 +383,10 @@ export function detectLanguage(filename) {
 export default {
   listCodeFiles,
   getCodeFile,
+  listFileVersions,
+  getFileVersion,
+  compareFileVersions,
+  whyDidThisBreak,
   createCodeFile,
   updateCodeFile,
   deleteCodeFile,

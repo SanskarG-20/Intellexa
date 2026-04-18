@@ -11,6 +11,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
   const [action, setAction] = useState('explain');
   const [learningMode, setLearningMode] = useState(false);
   const [taskMode, setTaskMode] = useState(false);
+  const [whyBrokeMode, setWhyBrokeMode] = useState(false);
   const [taskSessionId, setTaskSessionId] = useState(null);
   const [taskPrompt, setTaskPrompt] = useState('');
   const [taskCompletedStepIds, setTaskCompletedStepIds] = useState([]);
@@ -55,6 +56,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
       action,
       learningMode,
       taskMode,
+      whyBrokeMode,
     };
     
     setMessages(prev => [...prev, userMessage]);
@@ -68,6 +70,8 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
       action,
       learningMode,
       taskMode,
+      fileId: activeFile?.id,
+      versionIntelligence: whyBrokeMode,
       taskSessionId,
       completedStepIds,
       regeneratePlan: shouldRegenerateTaskPlan,
@@ -106,6 +110,9 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
         taskSummary: result.summary,
         taskSteps: result.steps || [],
         taskProgress: result.progress,
+        versionIntelligence: result.version_intelligence === true,
+        breakCauses: result.break_causes || [],
+        versionCompare: result.version_compare || null,
         warnings: result.warnings || [],
       };
       
@@ -119,6 +126,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
     action,
     learningMode,
     taskMode,
+    whyBrokeMode,
     taskSessionId,
     taskPrompt,
     taskCompletedStepIds,
@@ -197,14 +205,22 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
       setAction('explain');
       setLearningMode(true);
       setTaskMode(false);
+      setWhyBrokeMode(false);
     } else if (quickAction === 'task') {
       setAction('task');
       setLearningMode(false);
       setTaskMode(true);
+      setWhyBrokeMode(false);
+    } else if (quickAction === 'why_broke') {
+      setAction('why_broke');
+      setLearningMode(false);
+      setTaskMode(false);
+      setWhyBrokeMode(true);
     } else {
       setAction(quickAction);
       setLearningMode(false);
       setTaskMode(false);
+      setWhyBrokeMode(false);
     }
 
     const prompts = {
@@ -213,6 +229,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
       refactor: 'Improve code quality and performance',
       learning: 'Teach me this code step-by-step with logic breakdown and analogy',
       task: 'Build a feature',
+      why_broke: 'Why did this break?',
     };
     setPrompt(prompts[quickAction] || '');
     inputRef.current?.focus();
@@ -236,11 +253,16 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
             const next = e.target.value;
             setAction(next);
             setTaskMode(next === 'task');
+            setWhyBrokeMode(next === 'why_broke');
             if (next !== 'explain') {
               setLearningMode(false);
             }
             if (next === 'task') {
               setLearningMode(false);
+            }
+            if (next === 'why_broke') {
+              setLearningMode(false);
+              setTaskMode(false);
             }
           }}
         >
@@ -249,6 +271,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           <option value="fix">Fix Bugs</option>
           <option value="refactor">Refactor</option>
           <option value="task">Task Builder</option>
+          <option value="why_broke">Why Broke?</option>
         </select>
         
         <div className="code-assistant-context-badge">
@@ -287,6 +310,12 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           onClick={() => handleQuickAction('task')}
         >
           Task Builder
+        </button>
+        <button
+          className={`quick-action-btn ${whyBrokeMode ? 'active' : ''}`}
+          onClick={() => handleQuickAction('why_broke')}
+        >
+          Why Broke?
         </button>
       </div>
 
@@ -370,6 +399,33 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {message.versionIntelligence && (
+                <div className="suggestions-section">
+                  <span className="suggestions-title">Version Intelligence</span>
+
+                  {message.versionCompare && (
+                    <p className="task-mode-progress">
+                      {message.versionCompare.summary}
+                    </p>
+                  )}
+
+                  {message.breakCauses?.length > 0 && (
+                    <ul className="suggestions-list">
+                      {message.breakCauses.map((cause, idx) => (
+                        <li key={`cause-${idx}`}>
+                          <strong>
+                            {cause.title}
+                            {typeof cause.confidence === 'number' ? ` (${Math.round(cause.confidence * 100)}%)` : ''}
+                          </strong>
+                          {cause.evidence && <p>{cause.evidence}</p>}
+                          {cause.recommendation && <p>{cause.recommendation}</p>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
 
@@ -458,6 +514,8 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           placeholder={
             taskMode
               ? 'Describe the feature to build...'
+              : whyBrokeMode
+                ? 'Describe the breakage or paste the error...'
               : learningMode
                 ? 'Ask for a deep teaching explanation...'
                 : 'Ask about your code...'

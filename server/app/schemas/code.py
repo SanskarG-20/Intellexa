@@ -27,6 +27,9 @@ MAX_TASK_MODE_STEP_CODE_CHARS = 12000
 MAX_TASK_MODE_STEP_TITLE_CHARS = 140
 MAX_TASK_MODE_SUMMARY_CHARS = 1200
 MAX_TASK_MODE_SESSION_ID_CHARS = 128
+MAX_VERSION_FAILURE_CONTEXT_CHARS = 12000
+MAX_VERSION_DIFF_CHARS = 60000
+MAX_VERSION_LIST_LIMIT = 100
 
 
 class CodeAction(str, Enum):
@@ -533,3 +536,107 @@ class CodeHistoryResponse(BaseModel):
     """Response schema for code history."""
     entries: List[CodeHistoryEntry]
     total: int
+
+
+# ============================================================================
+# Version Intelligence Schemas
+# ============================================================================
+
+class CodeVersionEntry(BaseModel):
+    """One version snapshot for a code file."""
+
+    id: str
+    file_id: str
+    version_index: int
+    language: str
+    reason: str = "manual"
+    created_at: datetime
+    content_hash: str
+    content_preview: str = ""
+
+
+class CodeVersionSnapshotResponse(BaseModel):
+    """Detailed version snapshot including full content."""
+
+    version: CodeVersionEntry
+    content: str
+
+
+class CodeVersionHistoryResponse(BaseModel):
+    """Version list response for a single file."""
+
+    file_id: str
+    versions: List[CodeVersionEntry] = Field(default_factory=list)
+    total: int = 0
+
+
+class CodeVersionCompareRequest(BaseModel):
+    """Request payload to compare two versions of a file."""
+
+    file_id: str = Field(..., min_length=1, max_length=128)
+    from_version_id: Optional[str] = Field(default=None, max_length=128)
+    to_version_id: Optional[str] = Field(default=None, max_length=128)
+
+    @field_validator("file_id", "from_version_id", "to_version_id", mode="before")
+    @classmethod
+    def normalize_ids(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+
+class CodeVersionCompareResponse(BaseModel):
+    """Diff response between two code versions."""
+
+    file_id: str
+    from_version: CodeVersionEntry
+    to_version: CodeVersionEntry
+    summary: str
+    added_lines: int = 0
+    removed_lines: int = 0
+    changed_symbols: List[str] = Field(default_factory=list)
+    unified_diff: str = ""
+
+
+class BreakCause(BaseModel):
+    """One inferred root-cause candidate for a breakage."""
+
+    title: str
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    evidence: str = ""
+    recommendation: str = ""
+
+
+class CodeBreakAnalysisRequest(BaseModel):
+    """Request payload for answering: Why did this break?"""
+
+    file_id: str = Field(..., min_length=1, max_length=128)
+    question: str = Field(default="Why did this break?", min_length=1, max_length=400)
+    failure_context: Optional[str] = Field(default=None, max_length=MAX_VERSION_FAILURE_CONTEXT_CHARS)
+    baseline_version_id: Optional[str] = Field(default=None, max_length=128)
+    current_version_id: Optional[str] = Field(default=None, max_length=128)
+
+    @field_validator("file_id", "baseline_version_id", "current_version_id", mode="before")
+    @classmethod
+    def normalize_break_ids(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @field_validator("question")
+    @classmethod
+    def normalize_question(cls, value: str) -> str:
+        normalized = " ".join(str(value or "").split()).strip()
+        return normalized or "Why did this break?"
+
+
+class CodeBreakAnalysisResponse(BaseModel):
+    """Output payload for break-cause analysis."""
+
+    file_id: str
+    answer: str
+    causes: List[BreakCause] = Field(default_factory=list)
+    compare: CodeVersionCompareResponse
+    context_used: bool = False
