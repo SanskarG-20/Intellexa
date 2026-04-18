@@ -48,7 +48,6 @@ class VideoService:
         self.max_file_size = settings.get_max_file_size_bytes()
         self._whisper_model = None
         self._initialized = False
-        self._initialize()
     
     def _initialize(self) -> None:
         """Initialize Whisper model."""
@@ -65,6 +64,9 @@ class VideoService:
     
     def _ensure_initialized(self) -> None:
         """Ensure Whisper is available."""
+        if not self._initialized and self._whisper_model is None:
+            self._initialize()
+
         if not self._initialized or self._whisper_model is None:
             raise VideoServiceError(
                 "Video processing not available. Whisper is not installed.",
