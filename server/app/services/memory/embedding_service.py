@@ -87,7 +87,7 @@ class LocalEmbeddingModel:
             self._dimension = len(test_embedding)
             
             self._loaded = True
-            print(f"[LocalEmbedding] ✓ Model loaded: {self.model_name} ({self._dimension} dims)")
+            print(f"[LocalEmbedding] [OK] Model loaded: {self.model_name} ({self._dimension} dims)")
             return True
             
         except ImportError as e:
@@ -207,7 +207,7 @@ class EmbeddingService:
             self._model = model
             self._model_name = PRIMARY_MODEL
             self._dimension = model.dimension
-            print(f"[EmbeddingService] ✓ Using: {PRIMARY_MODEL}")
+            print(f"[EmbeddingService] [OK] Using: {PRIMARY_MODEL}")
             return
         
         # Try fallback models
@@ -218,11 +218,11 @@ class EmbeddingService:
                 self._model = model
                 self._model_name = model_name
                 self._dimension = model.dimension
-                print(f"[EmbeddingService] ✓ Using fallback: {model_name}")
+                print(f"[EmbeddingService] [OK] Using fallback: {model_name}")
                 return
         
         # All models failed
-        print("[EmbeddingService] ⚠ All models failed, using hash-based fallback")
+        print("[EmbeddingService] [WARN] All models failed, using hash-based fallback")
         self._use_fallback = True
     
     def _ensure_ready(self) -> None:
@@ -361,7 +361,7 @@ class EmbeddingService:
                 if emb is None:
                     result[i] = [0.0] * self._dimension
             
-            logger.info(f"[EmbeddingService] ✓ Batch complete: {len(texts)} embeddings")
+            logger.info(f"[EmbeddingService] [OK] Batch complete: {len(texts)} embeddings")
             
         except Exception as e:
             logger.error(f"[EmbeddingService] Batch failed: {e}")
@@ -410,11 +410,11 @@ async def validate_embedding_service() -> bool:
     
     if success:
         if model == "fallback":
-            logger.warning("⚠️  Embedding service using FALLBACK mode")
+            logger.warning("[WARN] Embedding service using FALLBACK mode")
             logger.warning("   Install sentence-transformers: pip install sentence-transformers torch")
         else:
-            logger.info(f"✓ Embedding service validated: {model}")
+            logger.info(f"[OK] Embedding service validated: {model}")
     else:
-        logger.error("✗ Embedding service validation failed")
+        logger.error("[ERROR] Embedding service validation failed")
     
     return success
