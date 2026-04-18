@@ -6,6 +6,7 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { codeAutocomplete } from '../../services/codeFileService';
+import useRealtimeCollaboration from '../../hooks/useRealtimeCollaboration';
 
 const EDITOR_THEMES = {
   dark: 'vs-dark',
@@ -45,6 +46,9 @@ function CodeEditor({
   onSave,
   onRunCode,
   isLoading,
+  collaboration,
+  onCollaborationConnectionChange,
+  onCollaborationParticipantsChange,
 }) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
@@ -52,9 +56,37 @@ function CodeEditor({
   const autocompleteTimerRef = useRef(null);
   const pendingAutocompleteResolverRef = useRef(null);
 
+  const [editorInstance, setEditorInstance] = useState(null);
+  const [monacoInstance, setMonacoInstance] = useState(null);
+
   const [theme, setTheme] = useState('dark');
   const [fontSize, setFontSize] = useState(14);
   const [minimap, setMinimap] = useState(true);
+
+  const collaborationEnabled = Boolean(
+    collaboration?.enabled
+    && collaboration?.ready !== false
+    && file?.id
+    && editorInstance
+    && monacoInstance,
+  );
+
+  const { connectionState: collaborationConnectionState } = useRealtimeCollaboration({
+    enabled: collaborationEnabled,
+    workspaceId: collaboration?.workspaceId,
+    ownerUserId: collaboration?.ownerUserId,
+    persistLocalChanges: collaboration?.canPersist !== false,
+    file,
+    editor: editorInstance,
+    monaco: monacoInstance,
+    actorId: collaboration?.actorId,
+    actorName: collaboration?.actorName,
+    onContentChange: (content, meta) => {
+      onChange?.(content, meta);
+    },
+    onConnectionChange: onCollaborationConnectionChange,
+    onParticipantsChange: onCollaborationParticipantsChange,
+  });
 
   const getDebouncedAutocomplete = useCallback((payload) => {
     return new Promise((resolve) => {
@@ -136,6 +168,8 @@ function CodeEditor({
   const handleEditorDidMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    setEditorInstance(editor);
+    setMonacoInstance(monaco);
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       onSave?.();
@@ -150,8 +184,12 @@ function CodeEditor({
   }, [onRunCode, onSave, registerAutocompleteProvider]);
 
   const handleChange = useCallback((value) => {
-    onChange?.(value);
-  }, [onChange]);
+    if (collaborationEnabled) {
+      return;
+    }
+
+    onChange?.(value, { source: 'local', persist: true });
+  }, [collaborationEnabled, onChange]);
 
   useEffect(() => {
     if (editorRef.current && file) {
@@ -210,6 +248,11 @@ function CodeEditor({
           <span className="code-editor-language">{file.language}</span>
         </div>
         <div className="code-editor-toolbar-right">
+          {collaboration?.enabled && (
+            <span className={`code-editor-collab-state ${collaborationConnectionState === 'connected' ? 'connected' : 'fallback'}`}>
+              {collaborationConnectionState === 'connected' ? 'Realtime' : 'Fallback'}
+            </span>
+          )}
           <button
             className="code-editor-run-btn"
             onClick={onRunCode}

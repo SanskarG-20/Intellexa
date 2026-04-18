@@ -6,7 +6,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import useCodeAssist from '../../hooks/useCodeAssist';
 
-function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
+function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, sharedMessages = [] }) {
   const [prompt, setPrompt] = useState('');
   const [action, setAction] = useState('explain');
   const [learningMode, setLearningMode] = useState(false);
@@ -33,6 +33,26 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Merge collaboration feed messages from other participants.
+  useEffect(() => {
+    if (!Array.isArray(sharedMessages) || sharedMessages.length === 0) {
+      return;
+    }
+
+    setMessages((prev) => {
+      const seen = new Set(prev.map((item) => String(item.id)));
+      const incoming = sharedMessages.filter(
+        (item) => item && !seen.has(String(item.id)),
+      );
+
+      if (incoming.length === 0) {
+        return prev;
+      }
+
+      return [...prev, ...incoming];
+    });
+  }, [sharedMessages]);
 
   // Handle submit
   const handleSubmit = useCallback(async (e) => {
@@ -368,7 +388,11 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
             >
               <div className="message-header">
                 <span className="message-role">
-                  {message.role === 'user' ? 'You' : 'Intellexa'}
+                  {message.isRemote
+                    ? `${message.senderName || 'Collaborator'} - ${message.role === 'assistant' ? 'Intellexa' : 'User'}`
+                    : message.role === 'user'
+                      ? 'You'
+                      : 'Intellexa'}
                 </span>
                 {message.contextUsed && (
                   <span className="context-badge" title="Used knowledge context">

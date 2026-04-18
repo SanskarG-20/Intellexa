@@ -5,7 +5,7 @@ Pydantic models for Code Space API request/response validation.
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -30,6 +30,11 @@ MAX_TASK_MODE_SESSION_ID_CHARS = 128
 MAX_VERSION_FAILURE_CONTEXT_CHARS = 12000
 MAX_VERSION_DIFF_CHARS = 60000
 MAX_VERSION_LIST_LIMIT = 100
+MAX_COLLAB_WORKSPACE_ID_CHARS = 128
+MAX_COLLAB_ACTOR_ID_CHARS = 128
+MAX_COLLAB_ACTOR_NAME_CHARS = 120
+MAX_COLLAB_MESSAGE_CHARS = 4000
+MAX_COLLAB_METADATA_ITEMS = 32
 
 
 class CodeAction(str, Enum):
@@ -57,6 +62,24 @@ class TaskStepStatus(str, Enum):
     TODO = "todo"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class CollaborationRole(str, Enum):
+    """Role used in collaboration presence and events."""
+
+    USER = "user"
+    AI = "ai"
+    SYSTEM = "system"
+
+
+class CollaborationEventType(str, Enum):
+    """Event stream entries for real-time workspace collaboration."""
+
+    FILE_SYNC = "file_sync"
+    FILE_DELETED = "file_deleted"
+    USER_CONTEXT = "user_context"
+    AI_CONTEXT = "ai_context"
+    SYSTEM = "system"
 
 
 # ============================================================================
@@ -530,6 +553,123 @@ class CodeExecutionResponse(BaseModel):
     success: bool
     result: CodeExecutionResult
     error: Optional[str] = None
+
+
+# ============================================================================
+# Collaboration Schemas
+# ============================================================================
+
+class CollaborationParticipant(BaseModel):
+    """One connected participant in a collaboration workspace."""
+
+    actor_id: str
+    actor_name: str
+    actor_role: CollaborationRole = CollaborationRole.USER
+    joined_at: datetime
+    last_seen_at: datetime
+
+
+class CollaborationEvent(BaseModel):
+    """One event in collaboration event stream."""
+
+    sequence: int = Field(default=0, ge=0)
+    workspace_id: str
+    event_type: CollaborationEventType
+    actor_id: str
+    actor_name: str
+    actor_role: CollaborationRole = CollaborationRole.USER
+    timestamp: datetime
+    file_id: Optional[str] = None
+    file_key: Optional[str] = None
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CollaborationJoinRequest(BaseModel):
+    """Join or refresh a real-time collaboration workspace."""
+
+    workspace_id: str = Field(..., min_length=1, max_length=MAX_COLLAB_WORKSPACE_ID_CHARS)
+    actor_id: Optional[str] = Field(default=None, max_length=MAX_COLLAB_ACTOR_ID_CHARS)
+    actor_name: Optional[str] = Field(default=None, max_length=MAX_COLLAB_ACTOR_NAME_CHARS)
+    actor_role: CollaborationRole = CollaborationRole.USER
+
+    @field_validator("workspace_id", "actor_id", "actor_name", mode="before")
+    @classmethod
+    def normalize_optional_text_fields(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+
+class CollaborationJoinResponse(BaseModel):
+    """Response payload after joining collaboration workspace."""
+
+    workspace_id: str
+    actor_id: str
+    sequence: int = Field(default=0, ge=0)
+    participants: List[CollaborationParticipant] = Field(default_factory=list)
+
+
+class CollaborationStateResponse(BaseModel):
+    """Collaboration workspace snapshot + incremental events."""
+
+    workspace_id: str
+    sequence: int = Field(default=0, ge=0)
+    participants: List[CollaborationParticipant] = Field(default_factory=list)
+    events: List[CollaborationEvent] = Field(default_factory=list)
+
+
+class CollaborationContextPublishRequest(BaseModel):
+    """Publish shared context message (user/AI/system) to a workspace."""
+
+    workspace_id: str = Field(..., min_length=1, max_length=MAX_COLLAB_WORKSPACE_ID_CHARS)
+    actor_id: Optional[str] = Field(default=None, max_length=MAX_COLLAB_ACTOR_ID_CHARS)
+    actor_name: Optional[str] = Field(default=None, max_length=MAX_COLLAB_ACTOR_NAME_CHARS)
+    actor_role: CollaborationRole = CollaborationRole.USER
+    event_type: CollaborationEventType = CollaborationEventType.USER_CONTEXT
+    message: str = Field(..., min_length=1, max_length=MAX_COLLAB_MESSAGE_CHARS)
+    file_id: Optional[str] = Field(default=None, max_length=128)
+    file_key: Optional[str] = Field(default=None, max_length=600)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("workspace_id", "actor_id", "actor_name", "file_id", "file_key", mode="before")
+    @classmethod
+    def normalize_context_fields(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @field_validator("message")
+    @classmethod
+    def normalize_message(cls, value: str) -> str:
+        normalized = " ".join(str(value or "").split()).strip()
+        if not normalized:
+            raise ValueError("message must not be empty")
+        return normalized
+
+    @field_validator("metadata")
+    @classmethod
+    def trim_metadata(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(value, dict):
+            return {}
+
+        result: Dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= MAX_COLLAB_METADATA_ITEMS:
+                break
+            normalized_key = str(key or "").strip()[:64]
+            if not normalized_key:
+                continue
+            result[normalized_key] = item
+        return result
+
+
+class CollaborationContextPublishResponse(BaseModel):
+    """Response payload after publishing collaboration context."""
+
+    success: bool = True
+    event: CollaborationEvent
 
 
 # ============================================================================

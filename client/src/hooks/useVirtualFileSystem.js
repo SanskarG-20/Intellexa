@@ -10,6 +10,7 @@ const LOCAL_STORAGE_PREFIX = 'intellexa_code_files';
 const LOCAL_HISTORY_PREFIX = 'intellexa_code_history';
 const DEBOUNCE_MS = 500;
 const MAX_HISTORY_ENTRIES = 20;
+const REMOTE_STALE_TOLERANCE_MS = 300;
 
 const DEFAULT_PROJECT_BLUEPRINT = [
   { filename: 'project', path: '/', isFolder: true, content: '', language: 'plaintext' },
@@ -31,6 +32,24 @@ const DEFAULT_PROJECT_BLUEPRINT = [
     ].join('\n'),
   },
 ];
+
+function normalizePath(pathValue) {
+  const raw = String(pathValue || '/').replace(/\\/g, '/').trim();
+  const withLeadingSlash = raw.startsWith('/') ? raw : `/${raw}`;
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash : `${withLeadingSlash}/`;
+}
+
+function buildFileKey(pathValue, filenameValue) {
+  return `${normalizePath(pathValue)}${String(filenameValue || '').trim()}`;
+}
+
+function buildLocalCollabId(fileKey) {
+  const safe = String(fileKey || 'remote-file')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `collab-${safe || 'file'}`.slice(0, 80);
+}
 
 function isFolderEntry(file) {
   return Boolean(file?.is_folder || file?.isFolder);
@@ -99,16 +118,42 @@ function mergeRemoteAndLocal(remoteFiles, localFilesMap) {
   return merged;
 }
 
-export function useVirtualFileSystem(userId) {
+export function useVirtualFileSystem(userId, collaboration = null) {
   const [files, setFiles] = useState([]);
   const [openFiles, setOpenFiles] = useState([]);
   const [activeFileId, setActiveFileId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isDirty, setIsDirty] = useState({});
+  const [remoteConflicts, setRemoteConflicts] = useState([]);
 
   const saveTimeoutRef = useRef(null);
   const pendingChangesRef = useRef({});
+  const filesRef = useRef([]);
+  const isDirtyRef = useRef({});
+  const remoteAppliedAtRef = useRef({});
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
+
+  const buildCollaborationOptions = useCallback(() => {
+    if (!collaboration || collaboration.enabled === false || !collaboration.workspaceId) {
+      return {};
+    }
+
+    return {
+      collaboration: {
+        workspaceId: collaboration.workspaceId,
+        actorId: collaboration.actorId,
+        actorName: collaboration.actorName,
+      },
+    };
+  }, [collaboration]);
 
   const activeFile = openFiles.find((f) => f.id === activeFileId) || null;
 
@@ -123,7 +168,7 @@ export function useVirtualFileSystem(userId) {
           content: item.content,
           language: item.language,
           isFolder: item.isFolder,
-        });
+        }, buildCollaborationOptions());
         createdFiles.push(created);
         saveLocalFile(userId, created);
       } catch {
@@ -143,7 +188,7 @@ export function useVirtualFileSystem(userId) {
     }
 
     return createdFiles;
-  }, [userId]);
+  }, [buildCollaborationOptions, userId]);
 
   const openFile = useCallback(
     async (fileId) => {
@@ -255,7 +300,7 @@ export function useVirtualFileSystem(userId) {
           content: '',
           language,
           isFolder,
-        });
+        }, buildCollaborationOptions());
 
         setFiles((prev) => [...prev, newFile]);
         saveLocalFile(userId, newFile);
@@ -282,7 +327,7 @@ export function useVirtualFileSystem(userId) {
         setIsLoading(false);
       }
     },
-    [userId],
+    [buildCollaborationOptions, userId],
   );
 
   const closeFile = useCallback(
@@ -308,7 +353,7 @@ export function useVirtualFileSystem(userId) {
 
     for (const [fileId, content] of Object.entries(pending)) {
       try {
-        await codeFileService.updateCodeFile(fileId, { content });
+        await codeFileService.updateCodeFile(fileId, { content }, buildCollaborationOptions());
         appendFileHistory(userId, fileId, content);
         setIsDirty((prev) => {
           const next = { ...prev };
@@ -319,11 +364,27 @@ export function useVirtualFileSystem(userId) {
         console.error(`[VirtualFS] Failed to save ${fileId}:`, err);
       }
     }
-  }, [userId]);
+  }, [buildCollaborationOptions, userId]);
 
   const updateFileContent = useCallback(
-    (fileId, content) => {
-      setIsDirty((prev) => ({ ...prev, [fileId]: true }));
+    (fileId, content, options = {}) => {
+      const source = String(options.source || 'local').trim().toLowerCase();
+      const persist = options.persist !== false;
+      const isRemoteSource = source.startsWith('remote');
+
+      if (!isRemoteSource && persist) {
+        setIsDirty((prev) => ({ ...prev, [fileId]: true }));
+      } else if (!persist) {
+        setIsDirty((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, fileId)) {
+            return prev;
+          }
+
+          const next = { ...prev };
+          delete next[fileId];
+          return next;
+        });
+      }
 
       setOpenFiles((prev) =>
         prev.map((file) =>
@@ -340,6 +401,10 @@ export function useVirtualFileSystem(userId) {
       const localFiles = getLocalFiles(userId);
       const current = localFiles[fileId] || {};
       saveLocalFile(userId, { ...current, id: fileId, content, updated_at: new Date().toISOString() });
+
+      if (!persist) {
+        return;
+      }
 
       pendingChangesRef.current[fileId] = content;
       if (saveTimeoutRef.current) {
@@ -367,7 +432,7 @@ export function useVirtualFileSystem(userId) {
           content: file.content,
           filename: file.filename,
           language: file.language,
-        });
+        }, buildCollaborationOptions());
 
         appendFileHistory(userId, fileId, file.content || '');
         setIsDirty((prev) => {
@@ -383,7 +448,7 @@ export function useVirtualFileSystem(userId) {
         setIsLoading(false);
       }
     },
-    [openFiles, userId],
+    [buildCollaborationOptions, openFiles, userId],
   );
 
   const deleteFile = useCallback(
@@ -392,7 +457,7 @@ export function useVirtualFileSystem(userId) {
       setError(null);
 
       try {
-        await codeFileService.deleteCodeFile(fileId);
+        await codeFileService.deleteCodeFile(fileId, buildCollaborationOptions());
         setFiles((prev) => prev.filter((f) => f.id !== fileId));
         closeFile(fileId);
         removeLocalFile(userId, fileId);
@@ -403,7 +468,7 @@ export function useVirtualFileSystem(userId) {
         setIsLoading(false);
       }
     },
-    [closeFile, userId],
+    [buildCollaborationOptions, closeFile, userId],
   );
 
   const renameFile = useCallback(
@@ -416,7 +481,7 @@ export function useVirtualFileSystem(userId) {
         await codeFileService.updateCodeFile(fileId, {
           filename: newFilename,
           language,
-        });
+        }, buildCollaborationOptions());
 
         setFiles((prev) =>
           prev.map((file) =>
@@ -443,7 +508,7 @@ export function useVirtualFileSystem(userId) {
         setIsLoading(false);
       }
     },
-    [userId],
+    [buildCollaborationOptions, userId],
   );
 
   const importFiles = useCallback(
@@ -452,7 +517,7 @@ export function useVirtualFileSystem(userId) {
       setError(null);
 
       try {
-        const response = await codeFileService.importCodeFiles(filesToImport);
+        const response = await codeFileService.importCodeFiles(filesToImport, buildCollaborationOptions());
         if (response.files?.length) {
           setFiles((prev) => [...prev, ...response.files]);
           for (const file of response.files) {
@@ -468,8 +533,141 @@ export function useVirtualFileSystem(userId) {
         setIsLoading(false);
       }
     },
-    [userId],
+    [buildCollaborationOptions, userId],
   );
+
+  const applyRemoteFileSync = useCallback((event) => {
+    const payload = event?.payload || {};
+    const remotePath = normalizePath(payload.path || '/');
+    const remoteFilename = String(payload.filename || '').trim();
+    const remoteFileKey = String(event?.file_key || buildFileKey(remotePath, remoteFilename)).trim();
+    const remoteUpdatedAt = String(payload.updated_at || event?.timestamp || new Date().toISOString());
+    const remoteUpdatedMs = Date.parse(remoteUpdatedAt);
+
+    if (!remoteFileKey || !remoteFilename) {
+      return { applied: false, reason: 'invalid_event' };
+    }
+
+    const allFiles = filesRef.current || [];
+    let target = allFiles.find((item) => item.id === event?.file_id);
+    if (!target) {
+      target = allFiles.find((item) => buildFileKey(item.path, item.filename) === remoteFileKey);
+    }
+
+    const targetId = target?.id || buildLocalCollabId(remoteFileKey);
+    const localUpdatedMs = target?.updated_at ? Date.parse(target.updated_at) : 0;
+    const staleByLocal = (
+      Number.isFinite(remoteUpdatedMs)
+      && Number.isFinite(localUpdatedMs)
+      && (remoteUpdatedMs + REMOTE_STALE_TOLERANCE_MS) < localUpdatedMs
+    );
+    const staleByApplied = (
+      Number.isFinite(remoteUpdatedMs)
+      && Number.isFinite(remoteAppliedAtRef.current[remoteFileKey])
+      && (remoteUpdatedMs + REMOTE_STALE_TOLERANCE_MS) < remoteAppliedAtRef.current[remoteFileKey]
+    );
+
+    if (staleByLocal || staleByApplied) {
+      return { applied: false, reason: 'stale_event', fileId: targetId };
+    }
+
+    if (isDirtyRef.current[targetId]) {
+      const conflict = {
+        fileId: targetId,
+        fileKey: remoteFileKey,
+        actorName: event?.actor_name || 'Collaborator',
+        timestamp: new Date().toISOString(),
+        reason: 'local_unsaved_changes',
+      };
+
+      setRemoteConflicts((prev) => [conflict, ...prev].slice(0, 25));
+      return { applied: false, reason: 'local_dirty_conflict', fileId: targetId };
+    }
+
+    const nextFile = {
+      ...(target || {}),
+      id: targetId,
+      filename: remoteFilename,
+      path: remotePath,
+      content: String(payload.content || ''),
+      language: String(payload.language || target?.language || 'plaintext'),
+      is_folder: false,
+      updated_at: remoteUpdatedAt,
+      created_at: target?.created_at || remoteUpdatedAt,
+    };
+
+    setFiles((prev) => {
+      const exists = prev.some((item) => item.id === targetId);
+      if (exists) {
+        return prev.map((item) => (item.id === targetId ? nextFile : item));
+      }
+      return [...prev, nextFile];
+    });
+
+    setOpenFiles((prev) => {
+      const exists = prev.some((item) => item.id === targetId);
+      if (exists) {
+        return prev.map((item) => (item.id === targetId ? nextFile : item));
+      }
+      return prev;
+    });
+
+    saveLocalFile(userId, nextFile);
+    remoteAppliedAtRef.current[remoteFileKey] = Number.isFinite(remoteUpdatedMs)
+      ? remoteUpdatedMs
+      : Date.now();
+
+    return { applied: true, fileId: targetId, fileKey: remoteFileKey };
+  }, [userId]);
+
+  const applyRemoteFileDeletion = useCallback((event) => {
+    const payload = event?.payload || {};
+    const remotePath = normalizePath(payload.path || '/');
+    const remoteFilename = String(payload.filename || '').trim();
+    const remoteFileKey = String(event?.file_key || buildFileKey(remotePath, remoteFilename)).trim();
+
+    if (!remoteFileKey) {
+      return { applied: false, reason: 'invalid_event' };
+    }
+
+    const allFiles = filesRef.current || [];
+    let target = allFiles.find((item) => item.id === event?.file_id);
+    if (!target) {
+      target = allFiles.find((item) => buildFileKey(item.path, item.filename) === remoteFileKey);
+    }
+
+    if (!target) {
+      return { applied: false, reason: 'not_found' };
+    }
+
+    if (isDirtyRef.current[target.id]) {
+      setRemoteConflicts((prev) => [
+        {
+          fileId: target.id,
+          fileKey: remoteFileKey,
+          actorName: event?.actor_name || 'Collaborator',
+          timestamp: new Date().toISOString(),
+          reason: 'remote_delete_conflict',
+        },
+        ...prev,
+      ].slice(0, 25));
+      return { applied: false, reason: 'local_dirty_conflict', fileId: target.id };
+    }
+
+    setFiles((prev) => prev.filter((item) => item.id !== target.id));
+    setOpenFiles((prev) => prev.filter((item) => item.id !== target.id));
+    removeLocalFile(userId, target.id);
+
+    if (activeFileId === target.id) {
+      setActiveFileId(null);
+    }
+
+    return { applied: true, fileId: target.id, fileKey: remoteFileKey };
+  }, [activeFileId, userId]);
+
+  const clearRemoteConflicts = useCallback(() => {
+    setRemoteConflicts([]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -488,6 +686,7 @@ export function useVirtualFileSystem(userId) {
     isLoading,
     error,
     isDirty,
+    remoteConflicts,
     loadFiles,
     createFile,
     openFile,
@@ -497,6 +696,9 @@ export function useVirtualFileSystem(userId) {
     deleteFile,
     renameFile,
     importFiles,
+    applyRemoteFileSync,
+    applyRemoteFileDeletion,
+    clearRemoteConflicts,
     setActiveFileId,
   };
 }

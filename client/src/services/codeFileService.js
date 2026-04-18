@@ -93,6 +93,40 @@ function formatApiError(error, endpointPath) {
   return backendMessage || error.message || `Request failed: ${endpointPath}`;
 }
 
+function buildCollaborationHeaders(collaboration) {
+  if (!collaboration || !collaboration.workspaceId) {
+    return {};
+  }
+
+  const headers = {
+    'X-Collab-Workspace-Id': String(collaboration.workspaceId || '').trim(),
+  };
+
+  if (collaboration.actorId) {
+    headers['X-Collab-Actor-Id'] = String(collaboration.actorId).trim();
+  }
+  if (collaboration.actorName) {
+    headers['X-Collab-Actor-Name'] = String(collaboration.actorName).trim();
+  }
+
+  return headers;
+}
+
+function withCollaborationHeaders(config = {}, collaboration) {
+  const collabHeaders = buildCollaborationHeaders(collaboration);
+  if (!Object.keys(collabHeaders).length) {
+    return config;
+  }
+
+  return {
+    ...config,
+    headers: {
+      ...(config.headers || {}),
+      ...collabHeaders,
+    },
+  };
+}
+
 async function requestWithFallback(method, path, payload, config = {}) {
   const normalizedActive = normalizeBaseUrl(activeApiBaseUrl);
   const candidates = [
@@ -189,7 +223,7 @@ export async function whyDidThisBreak(request) {
 /**
  * Create a new code file
  */
-export async function createCodeFile(file) {
+export async function createCodeFile(file, options = {}) {
   return requestWithFallback('post', `${CODE_API_PREFIX}/files`, {
     filename: file.filename,
     path: file.path || '/',
@@ -197,31 +231,36 @@ export async function createCodeFile(file) {
     language: file.language || 'javascript',
     is_folder: file.isFolder || false,
     parent_id: file.parentId || null,
-  });
+  }, withCollaborationHeaders({}, options.collaboration));
 }
 
 /**
  * Update an existing code file
  */
-export async function updateCodeFile(fileId, updates) {
+export async function updateCodeFile(fileId, updates, options = {}) {
   return requestWithFallback('put', `${CODE_API_PREFIX}/files/${fileId}`, {
     filename: updates.filename,
     content: updates.content,
     language: updates.language,
-  });
+  }, withCollaborationHeaders({}, options.collaboration));
 }
 
 /**
  * Delete a code file
  */
-export async function deleteCodeFile(fileId) {
-  return requestWithFallback('delete', `${CODE_API_PREFIX}/files/${fileId}`);
+export async function deleteCodeFile(fileId, options = {}) {
+  return requestWithFallback(
+    'delete',
+    `${CODE_API_PREFIX}/files/${fileId}`,
+    undefined,
+    withCollaborationHeaders({}, options.collaboration),
+  );
 }
 
 /**
  * Import multiple code files
  */
-export async function importCodeFiles(files) {
+export async function importCodeFiles(files, options = {}) {
   return requestWithFallback('post', `${CODE_API_PREFIX}/files/import`, {
     files: files.map(f => ({
       filename: f.filename,
@@ -229,6 +268,50 @@ export async function importCodeFiles(files) {
       content: f.content || '',
       language: f.language || 'javascript',
     }))
+  }, withCollaborationHeaders({}, options.collaboration));
+}
+
+/**
+ * Join a shared collaboration workspace.
+ */
+export async function joinCollaborationWorkspace(request) {
+  return requestWithFallback('post', `${CODE_API_PREFIX}/collaboration/join`, {
+    workspace_id: request.workspaceId,
+    actor_id: request.actorId || null,
+    actor_name: request.actorName || null,
+    actor_role: request.actorRole || 'user',
+  });
+}
+
+/**
+ * Poll collaboration state (presence + incremental events).
+ */
+export async function getCollaborationState(request) {
+  return requestWithFallback('get', `${CODE_API_PREFIX}/collaboration/state`, undefined, {
+    params: {
+      workspace_id: request.workspaceId,
+      since_sequence: request.sinceSequence || 0,
+      limit: request.limit || 50,
+      actor_id: request.actorId || null,
+      actor_name: request.actorName || null,
+    },
+  });
+}
+
+/**
+ * Publish user or AI context into collaboration event stream.
+ */
+export async function publishCollaborationContext(request) {
+  return requestWithFallback('post', `${CODE_API_PREFIX}/collaboration/context`, {
+    workspace_id: request.workspaceId,
+    actor_id: request.actorId || null,
+    actor_name: request.actorName || null,
+    actor_role: request.actorRole || 'user',
+    event_type: request.eventType || 'user_context',
+    message: request.message || '',
+    file_id: request.fileId || null,
+    file_key: request.fileKey || null,
+    metadata: request.metadata || {},
   });
 }
 
@@ -391,6 +474,9 @@ export default {
   updateCodeFile,
   deleteCodeFile,
   importCodeFiles,
+  joinCollaborationWorkspace,
+  getCollaborationState,
+  publishCollaborationContext,
   getFileTree,
   codeAssist,
   taskModeBuild,

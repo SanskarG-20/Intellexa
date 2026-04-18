@@ -7,6 +7,7 @@ from app.api.v1.code import router as code_router
 from app.api.v1.project_context import router as project_context_router
 from app.api.v1.dependency_graph import router as dependency_graph_router
 from app.routes.code_workspace_routes import router as code_workspace_router
+from app.realtime import socket_app
 from app.core.config import settings
 from app.services.memory.embedding_service import validate_embedding_service
 import uvicorn
@@ -74,6 +75,9 @@ app.include_router(project_context_router)
 app.include_router(dependency_graph_router)
 app.include_router(code_workspace_router)
 
+# Realtime collaboration runtime (Socket.IO) at /realtime/socket.io
+app.mount("/realtime", socket_app)
+
 @app.get("/")
 def read_root():
     """
@@ -82,7 +86,11 @@ def read_root():
     return {
         "status": "online", 
         "service": settings.APP_NAME,
-        "message": "Welcome to Intellexa Core! Start chatting at /api/v1/chat"
+        "message": "Welcome to Intellexa Core! Start chatting at /api/v1/chat",
+        "realtime": {
+            "socket_path": settings.COLLAB_SOCKET_PATH,
+            "collaboration_enabled": settings.COLLABORATION_ENABLED,
+        },
     }
 
 if __name__ == "__main__":

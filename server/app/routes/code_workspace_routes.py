@@ -11,6 +11,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from app.controllers.code_workspace_controller import code_workspace_controller
 from app.core.config import settings
 from app.schemas.code import (
+    CollaborationContextPublishRequest,
+    CollaborationContextPublishResponse,
+    CollaborationEventType,
+    CollaborationJoinRequest,
+    CollaborationJoinResponse,
+    CollaborationRole,
+    CollaborationStateResponse,
     CodeBreakAnalysisRequest,
     CodeBreakAnalysisResponse,
     BugPredictionRequest,
@@ -32,6 +39,7 @@ from app.schemas.code import (
     TaskModeRequest,
     TaskModeResponse,
 )
+from app.services.code_workspace.collaboration_service import collaboration_service
 from app.services.code_workspace.version_intelligence_service import version_intelligence_service
 
 
@@ -51,6 +59,125 @@ def _resolve_user_id(
         pass
 
     return settings.MOCK_USER_ID
+
+
+def _resolve_collab_actor_name(preferred: Optional[str], fallback: str) -> str:
+    normalized = str(preferred or "").strip()
+    if normalized:
+        return normalized
+    return str(fallback or "Collaborator")
+
+
+@router.post("/collaboration/join", response_model=CollaborationJoinResponse)
+async def post_collaboration_join(
+    request: CollaborationJoinRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for joining collaboration workspace presence."""
+    try:
+        return collaboration_service.join_workspace(
+            workspace_id=request.workspace_id,
+            actor_id=request.actor_id or user_id,
+            actor_name=_resolve_collab_actor_name(request.actor_name, user_id),
+            actor_role=request.actor_role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Collaboration join failed: {str(exc)}") from exc
+
+
+@router.post("/api/v1/code/collaboration/join", response_model=CollaborationJoinResponse)
+async def post_collaboration_join_versioned(
+    request: CollaborationJoinRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Versioned alias for joining collaboration workspace presence."""
+    return await post_collaboration_join(request, user_id=user_id)
+
+
+@router.get("/collaboration/state", response_model=CollaborationStateResponse)
+async def get_collaboration_state(
+    workspace_id: str,
+    since_sequence: int = 0,
+    limit: int = 50,
+    actor_id: Optional[str] = None,
+    actor_name: Optional[str] = None,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for collaboration incremental state polling."""
+    try:
+        return collaboration_service.get_state(
+            workspace_id=workspace_id,
+            since_sequence=since_sequence,
+            limit=limit,
+            actor_id=actor_id or user_id,
+            actor_name=_resolve_collab_actor_name(actor_name, user_id),
+            actor_role=CollaborationRole.USER,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Collaboration state failed: {str(exc)}") from exc
+
+
+@router.get("/api/v1/code/collaboration/state", response_model=CollaborationStateResponse)
+async def get_collaboration_state_versioned(
+    workspace_id: str,
+    since_sequence: int = 0,
+    limit: int = 50,
+    actor_id: Optional[str] = None,
+    actor_name: Optional[str] = None,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Versioned alias for collaboration incremental state polling."""
+    return await get_collaboration_state(
+        workspace_id=workspace_id,
+        since_sequence=since_sequence,
+        limit=limit,
+        actor_id=actor_id,
+        actor_name=actor_name,
+        user_id=user_id,
+    )
+
+
+@router.post("/collaboration/context", response_model=CollaborationContextPublishResponse)
+async def post_collaboration_context(
+    request: CollaborationContextPublishRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for publishing shared user/AI context updates."""
+    if request.event_type in {CollaborationEventType.FILE_SYNC, CollaborationEventType.FILE_DELETED}:
+        raise HTTPException(status_code=400, detail="Use file APIs for file sync events.")
+
+    try:
+        event = collaboration_service.publish_event(
+            workspace_id=request.workspace_id,
+            event_type=request.event_type,
+            actor_id=request.actor_id or user_id,
+            actor_name=_resolve_collab_actor_name(request.actor_name, user_id),
+            actor_role=request.actor_role,
+            file_id=request.file_id,
+            file_key=request.file_key,
+            payload={
+                "message": request.message,
+                "metadata": request.metadata,
+            },
+        )
+        return CollaborationContextPublishResponse(success=True, event=event)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Collaboration context failed: {str(exc)}") from exc
+
+
+@router.post("/api/v1/code/collaboration/context", response_model=CollaborationContextPublishResponse)
+async def post_collaboration_context_versioned(
+    request: CollaborationContextPublishRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Versioned alias for publishing shared user/AI context updates."""
+    return await post_collaboration_context(request, user_id=user_id)
 
 
 @router.post("/code-assist", response_model=CodeAssistResponse)

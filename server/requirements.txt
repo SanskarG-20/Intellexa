@@ -5,6 +5,7 @@ httpx
 pydantic
 pydantic-settings
 python-dotenv
+python-socketio[asgi]==5.11.4
 
 # Runtime-safe multimodal dependencies
 Pillow==10.3.0

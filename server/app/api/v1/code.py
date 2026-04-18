@@ -13,6 +13,13 @@ from app.db.supabase import supabase
 from app.core.config import settings
 from app.controllers.code_workspace_controller import code_workspace_controller
 from app.schemas.code import (
+    CollaborationContextPublishRequest,
+    CollaborationContextPublishResponse,
+    CollaborationEventType,
+    CollaborationJoinRequest,
+    CollaborationJoinResponse,
+    CollaborationRole,
+    CollaborationStateResponse,
     CodeBreakAnalysisRequest,
     CodeBreakAnalysisResponse,
     CodeFileCreate,
@@ -33,6 +40,7 @@ from app.schemas.code import (
     TaskModeRequest,
     TaskModeResponse,
 )
+from app.services.code_workspace.collaboration_service import collaboration_service
 from app.services.code_workspace.version_intelligence_service import version_intelligence_service
 
 
@@ -109,9 +117,105 @@ def _detect_language(filename: str) -> str:
     return language_map.get(ext, 'plaintext')
 
 
+def _build_file_key(path: str, filename: str) -> str:
+    normalized_path = str(path or "/").replace('\\', '/').strip()
+    if not normalized_path.startswith('/'):
+        normalized_path = f"/{normalized_path}"
+    if not normalized_path.endswith('/'):
+        normalized_path = f"{normalized_path}/"
+    normalized_filename = str(filename or '').strip()
+    return f"{normalized_path}{normalized_filename}"
+
+
+def _resolve_collab_actor_name(preferred: Optional[str], fallback: str) -> str:
+    normalized = str(preferred or '').strip()
+    if normalized:
+        return normalized
+    return str(fallback or 'Collaborator')
+
+
 # ============================================================================
 # File CRUD Endpoints
 # ============================================================================
+
+@router.post("/collaboration/join", response_model=CollaborationJoinResponse)
+async def join_collaboration_workspace(
+    request: CollaborationJoinRequest,
+    user_id: str = Depends(_get_user_id),
+):
+    """Join or refresh presence in a shared collaboration workspace."""
+    try:
+        actor_id = request.actor_id or user_id
+        actor_name = _resolve_collab_actor_name(request.actor_name, user_id)
+        return collaboration_service.join_workspace(
+            workspace_id=request.workspace_id,
+            actor_id=actor_id,
+            actor_name=actor_name,
+            actor_role=request.actor_role,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to join workspace: {str(e)}")
+
+
+@router.get("/collaboration/state", response_model=CollaborationStateResponse)
+async def get_collaboration_state(
+    workspace_id: str,
+    since_sequence: int = 0,
+    limit: int = 50,
+    actor_id: Optional[str] = None,
+    actor_name: Optional[str] = None,
+    user_id: str = Depends(_get_user_id),
+):
+    """Poll incremental collaboration events plus active participant presence."""
+    try:
+        resolved_actor_id = actor_id or user_id
+        resolved_actor_name = _resolve_collab_actor_name(actor_name, user_id)
+        return collaboration_service.get_state(
+            workspace_id=workspace_id,
+            since_sequence=since_sequence,
+            limit=limit,
+            actor_id=resolved_actor_id,
+            actor_name=resolved_actor_name,
+            actor_role=CollaborationRole.USER,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch collaboration state: {str(e)}")
+
+
+@router.post("/collaboration/context", response_model=CollaborationContextPublishResponse)
+async def publish_collaboration_context(
+    request: CollaborationContextPublishRequest,
+    user_id: str = Depends(_get_user_id),
+):
+    """Publish user or AI context updates into shared workspace stream."""
+    if request.event_type in {CollaborationEventType.FILE_SYNC, CollaborationEventType.FILE_DELETED}:
+        raise HTTPException(status_code=400, detail="Use file APIs for file sync events.")
+
+    try:
+        actor_id = request.actor_id or user_id
+        actor_name = _resolve_collab_actor_name(request.actor_name, user_id)
+        event = collaboration_service.publish_event(
+            workspace_id=request.workspace_id,
+            event_type=request.event_type,
+            actor_id=actor_id,
+            actor_name=actor_name,
+            actor_role=request.actor_role,
+            file_id=request.file_id,
+            file_key=request.file_key,
+            payload={
+                "message": request.message,
+                "metadata": request.metadata,
+            },
+        )
+        return CollaborationContextPublishResponse(success=True, event=event)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to publish context: {str(e)}")
 
 @router.get("/files", response_model=CodeFileListResponse)
 async def list_code_files(
@@ -207,7 +311,10 @@ async def get_code_file(
 @router.post("/files", response_model=CodeFileDetail)
 async def create_code_file(
     file: CodeFileCreate,
-    user_id: str = Depends(_get_user_id)
+    user_id: str = Depends(_get_user_id),
+    x_collab_workspace_id: Optional[str] = Header(default=None, alias="X-Collab-Workspace-Id"),
+    x_collab_actor_id: Optional[str] = Header(default=None, alias="X-Collab-Actor-Id"),
+    x_collab_actor_name: Optional[str] = Header(default=None, alias="X-Collab-Actor-Name"),
 ):
     """Create a new code file or folder."""
     if not supabase:
@@ -268,6 +375,24 @@ async def create_code_file(
                 )
             except Exception:
                 pass
+
+        if x_collab_workspace_id and not bool(f.get('is_folder')):
+            try:
+                collaboration_service.publish_file_sync(
+                    workspace_id=x_collab_workspace_id,
+                    actor_id=x_collab_actor_id or user_id,
+                    actor_name=_resolve_collab_actor_name(x_collab_actor_name, user_id),
+                    actor_role=CollaborationRole.USER,
+                    file_id=f.get('id'),
+                    file_key=_build_file_key(f.get('path') or '/', f.get('filename') or ''),
+                    filename=f.get('filename') or '',
+                    path=f.get('path') or '/',
+                    language=f.get('language') or file.language,
+                    content=f.get('content') or '',
+                    updated_at=f.get('updated_at') or now,
+                )
+            except Exception:
+                pass
         
         return CodeFileDetail(
             id=f['id'],
@@ -294,7 +419,10 @@ async def create_code_file(
 async def update_code_file(
     file_id: str,
     update: CodeFileUpdate,
-    user_id: str = Depends(_get_user_id)
+    user_id: str = Depends(_get_user_id),
+    x_collab_workspace_id: Optional[str] = Header(default=None, alias="X-Collab-Workspace-Id"),
+    x_collab_actor_id: Optional[str] = Header(default=None, alias="X-Collab-Actor-Id"),
+    x_collab_actor_name: Optional[str] = Header(default=None, alias="X-Collab-Actor-Name"),
 ):
     """Update a code file's content or metadata."""
     if not supabase:
@@ -367,6 +495,24 @@ async def update_code_file(
             )
         except Exception:
             pass
+
+        if x_collab_workspace_id and not bool(f.get('is_folder')):
+            try:
+                collaboration_service.publish_file_sync(
+                    workspace_id=x_collab_workspace_id,
+                    actor_id=x_collab_actor_id or user_id,
+                    actor_name=_resolve_collab_actor_name(x_collab_actor_name, user_id),
+                    actor_role=CollaborationRole.USER,
+                    file_id=f.get('id'),
+                    file_key=_build_file_key(f.get('path') or '/', f.get('filename') or ''),
+                    filename=f.get('filename') or existing_filename,
+                    path=f.get('path') or existing_file.get('path') or '/',
+                    language=f.get('language') or existing_language,
+                    content=f.get('content') or '',
+                    updated_at=f.get('updated_at') or update_data['updated_at'],
+                )
+            except Exception:
+                pass
         
         return CodeFileDetail(
             id=f['id'],
@@ -392,7 +538,10 @@ async def update_code_file(
 @router.delete("/files/{file_id}", response_model=CodeFileDeleteResponse)
 async def delete_code_file(
     file_id: str,
-    user_id: str = Depends(_get_user_id)
+    user_id: str = Depends(_get_user_id),
+    x_collab_workspace_id: Optional[str] = Header(default=None, alias="X-Collab-Workspace-Id"),
+    x_collab_actor_id: Optional[str] = Header(default=None, alias="X-Collab-Actor-Id"),
+    x_collab_actor_name: Optional[str] = Header(default=None, alias="X-Collab-Actor-Name"),
 ):
     """Delete a code file."""
     if not supabase:
@@ -403,7 +552,7 @@ async def delete_code_file(
     
     try:
         # Check file exists
-        existing = supabase.table('code_files').select('id, filename, is_folder').eq(
+        existing = supabase.table('code_files').select('id, filename, path, is_folder').eq(
             'id', file_id
         ).eq('user_id', user_id).execute()
         
@@ -414,6 +563,7 @@ async def delete_code_file(
             )
         
         filename = existing.data[0]['filename']
+        file_path = existing.data[0].get('path') or '/'
         
         # Delete the file
         supabase.table('code_files').delete().eq(
@@ -425,6 +575,20 @@ async def delete_code_file(
             supabase.table('code_files').delete().eq(
                 'parent_id', file_id
             ).eq('user_id', user_id).execute()
+
+        if x_collab_workspace_id:
+            try:
+                collaboration_service.publish_file_deleted(
+                    workspace_id=x_collab_workspace_id,
+                    actor_id=x_collab_actor_id or user_id,
+                    actor_name=_resolve_collab_actor_name(x_collab_actor_name, user_id),
+                    file_id=file_id,
+                    file_key=_build_file_key(file_path, filename),
+                    filename=filename,
+                    path=file_path,
+                )
+            except Exception:
+                pass
         
         return CodeFileDeleteResponse(
             success=True,
@@ -448,7 +612,10 @@ async def delete_code_file(
 @router.post("/files/import", response_model=CodeFileImportResponse)
 async def import_code_files(
     request: CodeFileImportRequest,
-    user_id: str = Depends(_get_user_id)
+    user_id: str = Depends(_get_user_id),
+    x_collab_workspace_id: Optional[str] = Header(default=None, alias="X-Collab-Workspace-Id"),
+    x_collab_actor_id: Optional[str] = Header(default=None, alias="X-Collab-Actor-Id"),
+    x_collab_actor_name: Optional[str] = Header(default=None, alias="X-Collab-Actor-Name"),
 ):
     """Import multiple code files at once."""
     if not supabase:
@@ -502,6 +669,24 @@ async def import_code_files(
                     )
                 except Exception:
                     pass
+
+                if x_collab_workspace_id:
+                    try:
+                        collaboration_service.publish_file_sync(
+                            workspace_id=x_collab_workspace_id,
+                            actor_id=x_collab_actor_id or user_id,
+                            actor_name=_resolve_collab_actor_name(x_collab_actor_name, user_id),
+                            actor_role=CollaborationRole.USER,
+                            file_id=f.get('id'),
+                            file_key=_build_file_key(f.get('path') or '/', f.get('filename') or ''),
+                            filename=f.get('filename') or file_item.filename,
+                            path=f.get('path') or file_item.path,
+                            language=f.get('language') or language,
+                            content=f.get('content') or file_item.content,
+                            updated_at=f.get('updated_at') or now,
+                        )
+                    except Exception:
+                        pass
         except Exception as e:
             errors.append(f"{file_item.filename}: {str(e)}")
     
