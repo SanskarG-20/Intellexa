@@ -10,6 +10,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
   const [prompt, setPrompt] = useState('');
   const [action, setAction] = useState('explain');
   const [learningMode, setLearningMode] = useState(false);
+  const [intentMode, setIntentMode] = useState(false);
   const [taskMode, setTaskMode] = useState(false);
   const [whyBrokeMode, setWhyBrokeMode] = useState(false);
   const [taskSessionId, setTaskSessionId] = useState(null);
@@ -55,6 +56,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
       content: normalizedPrompt,
       action,
       learningMode,
+      intentMode,
       taskMode,
       whyBrokeMode,
     };
@@ -98,10 +100,12 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
         content: result.task_mode
           ? (result.summary || result.title || 'Task plan created.')
           : result.explanation,
-        improvedCode: result.updated_code || result.improved_code,
+        improvedCode: result.optimized_code || result.updated_code || result.improved_code,
         suggestions: result.suggestions,
         contextUsed: result.context_used,
         contextSources: result.context_sources,
+        intentMode: result.intent_mode,
+        intentDecision: result.intent_decision,
         learningMode: result.learning_mode,
         learningExplanation: result.learning_explanation,
         taskMode: result.task_mode === true,
@@ -125,6 +129,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
     prompt,
     action,
     learningMode,
+    intentMode,
     taskMode,
     whyBrokeMode,
     taskSessionId,
@@ -204,21 +209,31 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
     if (quickAction === 'learning') {
       setAction('explain');
       setLearningMode(true);
+      setIntentMode(false);
+      setTaskMode(false);
+      setWhyBrokeMode(false);
+    } else if (quickAction === 'intent') {
+      setAction('intent');
+      setLearningMode(false);
+      setIntentMode(true);
       setTaskMode(false);
       setWhyBrokeMode(false);
     } else if (quickAction === 'task') {
       setAction('task');
       setLearningMode(false);
+      setIntentMode(false);
       setTaskMode(true);
       setWhyBrokeMode(false);
     } else if (quickAction === 'why_broke') {
       setAction('why_broke');
       setLearningMode(false);
+      setIntentMode(false);
       setTaskMode(false);
       setWhyBrokeMode(true);
     } else {
       setAction(quickAction);
       setLearningMode(false);
+      setIntentMode(false);
       setTaskMode(false);
       setWhyBrokeMode(false);
     }
@@ -227,6 +242,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
       explain: 'Explain this code',
       fix: 'Find and fix any issues',
       refactor: 'Improve code quality and performance',
+      intent: 'I want faster search',
       learning: 'Teach me this code step-by-step with logic breakdown and analogy',
       task: 'Build a feature',
       why_broke: 'Why did this break?',
@@ -252,10 +268,16 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           onChange={(e) => {
             const next = e.target.value;
             setAction(next);
+            setIntentMode(next === 'intent');
             setTaskMode(next === 'task');
             setWhyBrokeMode(next === 'why_broke');
             if (next !== 'explain') {
               setLearningMode(false);
+            }
+            if (next === 'intent') {
+              setLearningMode(false);
+              setTaskMode(false);
+              setWhyBrokeMode(false);
             }
             if (next === 'task') {
               setLearningMode(false);
@@ -270,6 +292,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           <option value="generate">Generate</option>
           <option value="fix">Fix Bugs</option>
           <option value="refactor">Refactor</option>
+          <option value="intent">Intent Code</option>
           <option value="task">Task Builder</option>
           <option value="why_broke">Why Broke?</option>
         </select>
@@ -298,6 +321,12 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           onClick={() => handleQuickAction('refactor')}
         >
           Refactor
+        </button>
+        <button
+          className={`quick-action-btn ${intentMode ? 'active' : ''}`}
+          onClick={() => handleQuickAction('intent')}
+        >
+          Intent
         </button>
         <button
           className={`quick-action-btn ${learningMode ? 'active' : ''}`}
@@ -351,6 +380,24 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
               <div className="message-content">
                 {message.content}
               </div>
+
+              {message.intentMode && message.intentDecision && (
+                <div className="suggestions-section">
+                  <span className="suggestions-title">Intent Decision</span>
+                  {message.intentDecision.algorithm && (
+                    <p className="task-mode-summary">Algorithm: {message.intentDecision.algorithm}</p>
+                  )}
+                  {message.intentDecision.structure && (
+                    <p className="task-mode-summary">Structure: {message.intentDecision.structure}</p>
+                  )}
+                  {message.intentDecision.complexity && (
+                    <p className="task-mode-progress">Complexity: {message.intentDecision.complexity}</p>
+                  )}
+                  {message.intentDecision.rationale && (
+                    <p className="task-mode-criteria">Why: {message.intentDecision.rationale}</p>
+                  )}
+                </div>
+              )}
 
               {message.taskMode && message.taskSteps?.length > 0 && (
                 <div className="suggestions-section">
@@ -516,6 +563,8 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
               ? 'Describe the feature to build...'
               : whyBrokeMode
                 ? 'Describe the breakage or paste the error...'
+              : intentMode
+                ? 'Describe the outcome you want optimized (e.g., I want faster search)...'
               : learningMode
                 ? 'Ask for a deep teaching explanation...'
                 : 'Ask about your code...'

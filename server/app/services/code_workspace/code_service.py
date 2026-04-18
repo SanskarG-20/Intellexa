@@ -19,6 +19,7 @@ from app.schemas.code import (
     CodeAutocompleteItem,
     CodeAutocompleteRequest,
     CodeAutocompleteResponse,
+    IntentDecision,
     CodeLearningExplanation,
     CodeSuggestion,
     LearningModeRequest,
@@ -122,6 +123,284 @@ class CodeWorkspaceCodeService:
         return suggestions[:max_items]
 
     @staticmethod
+    def _extract_first_json_object(raw: str) -> Optional[Dict[str, Any]]:
+        text = str(raw or "").strip()
+        if not text:
+            return None
+
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+
+        fenced = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
+        if fenced:
+            try:
+                parsed = json.loads(fenced.group(1).strip())
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+
+        starts = [index for index, ch in enumerate(text) if ch == "{"]
+        for start in starts:
+            depth = 0
+            in_string = False
+            escaped = False
+            for i in range(start, len(text)):
+                ch = text[i]
+
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif ch == "\\":
+                        escaped = True
+                    elif ch == '"':
+                        in_string = False
+                    continue
+
+                if ch == '"':
+                    in_string = True
+                    continue
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[start : i + 1]
+                        try:
+                            parsed = json.loads(candidate)
+                            if isinstance(parsed, dict):
+                                return parsed
+                        except Exception:
+                            break
+
+        return None
+
+    @staticmethod
+    def _intent_system_prompt(language: str) -> str:
+        return (
+            "You are an optimization-focused coding architect. "
+            "Convert user intent into production-ready code improvements. "
+            "Return strictly valid JSON only with keys: "
+            "algorithm, structure, complexity, rationale, optimized_code, explanation, suggestions. "
+            "suggestions must be an array of short strings. "
+            f"optimized_code must be executable {language} code without markdown fences."
+        )
+
+    @staticmethod
+    def _fallback_intent_plan(
+        intent_prompt: str,
+        language: str,
+    ) -> Dict[str, Any]:
+        prompt = str(intent_prompt or "")
+        lower = prompt.lower()
+        lang = str(language or "javascript").lower()
+
+        if "search" in lower and lang == "python":
+            return {
+                "algorithm": "Hash-indexed lookup with pre-normalized keys",
+                "structure": "One-time dictionary index keyed by normalized searchable tokens",
+                "complexity": "Index build O(n), query O(1) average",
+                "rationale": (
+                    "Intent asks for faster search. Replacing repeated linear scans with a dictionary "
+                    "index reduces query latency significantly."
+                ),
+                "optimized_code": (
+                    "from collections import defaultdict\n\n"
+                    "def build_search_index(items, key='name'):\n"
+                    "    index = defaultdict(list)\n"
+                    "    for item in items:\n"
+                    "        value = str(item.get(key, '')).strip().lower()\n"
+                    "        if value:\n"
+                    "            index[value].append(item)\n"
+                    "    return index\n\n"
+                    "def fast_search(index, query):\n"
+                    "    q = str(query or '').strip().lower()\n"
+                    "    if not q:\n"
+                    "        return []\n"
+                    "    return list(index.get(q, []))\n"
+                ),
+                "explanation": (
+                    "This optimization introduces an index-building step and performs constant-time "
+                    "lookup for repeated searches instead of scanning every record each time."
+                ),
+                "suggestions": [
+                    "Rebuild the index when source data changes.",
+                    "Normalize queries and indexed values consistently.",
+                    "Add tests for missing or empty query inputs.",
+                ],
+            }
+
+        if "search" in lower:
+            return {
+                "algorithm": "Hash-indexed lookup with normalized keys",
+                "structure": "Map-based index built once and reused for queries",
+                "complexity": "Index build O(n), query O(1) average",
+                "rationale": (
+                    "Intent asks for faster search. Pre-indexing prevents repeated full-array scans."
+                ),
+                "optimized_code": (
+                    "export function buildSearchIndex(items, key = 'name') {\n"
+                    "  const index = new Map();\n"
+                    "  for (const item of items || []) {\n"
+                    "    const value = String(item?.[key] ?? '').trim().toLowerCase();\n"
+                    "    if (!value) continue;\n"
+                    "    const bucket = index.get(value) || [];\n"
+                    "    bucket.push(item);\n"
+                    "    index.set(value, bucket);\n"
+                    "  }\n"
+                    "  return index;\n"
+                    "}\n\n"
+                    "export function fastSearch(index, query) {\n"
+                    "  const normalized = String(query ?? '').trim().toLowerCase();\n"
+                    "  if (!normalized) return [];\n"
+                    "  return [...(index.get(normalized) || [])];\n"
+                    "}\n"
+                ),
+                "explanation": (
+                    "This turns repeated linear search into indexed lookup. Build the index once, "
+                    "then resolve queries directly from the map."
+                ),
+                "suggestions": [
+                    "Refresh index after mutations.",
+                    "Measure before/after latency on representative datasets.",
+                    "Handle partial-match search with a secondary prefix index if needed.",
+                ],
+            }
+
+        return {
+            "algorithm": "Precompute hot-path data and reduce repeated work",
+            "structure": "Separate preprocessing stage from request-time execution path",
+            "complexity": "Depends on workload; optimized path minimizes repeated operations",
+            "rationale": "Intent optimization benefits from moving expensive work outside hot execution loops.",
+            "optimized_code": (
+                "// Optimization template\n"
+                "export function preprocess(input) {\n"
+                "  return input;\n"
+                "}\n\n"
+                "export function runOptimized(preprocessed, query) {\n"
+                "  return preprocessed;\n"
+                "}\n"
+            ),
+            "explanation": (
+                "The optimized structure precomputes reusable data once and keeps request-time "
+                "logic lightweight."
+            ),
+            "suggestions": [
+                "Profile baseline performance before deployment.",
+                "Add benchmarks to prevent regressions.",
+            ],
+        }
+
+    @staticmethod
+    def _intent_suggestions_from_payload(payload: Dict[str, Any], max_items: int) -> List[CodeSuggestion]:
+        raw_items = payload.get("suggestions")
+        if not isinstance(raw_items, list):
+            return []
+
+        values: List[CodeSuggestion] = []
+        for index, item in enumerate(raw_items, start=1):
+            if isinstance(item, dict):
+                title = str(item.get("title") or f"Optimization {index}").strip()
+                description = str(item.get("description") or item.get("detail") or "").strip()
+            else:
+                title = f"Optimization {index}"
+                description = str(item or "").strip()
+
+            if not description:
+                continue
+
+            values.append(CodeSuggestion(title=title[:80], description=description[:280]))
+            if len(values) >= max_items:
+                break
+
+        return values
+
+    def _build_intent_response(
+        self,
+        *,
+        ai_text: str,
+        intent_prompt: str,
+        language: str,
+        context_used: bool,
+        context_sources: List[str],
+        max_suggestions: int,
+    ) -> CodeAssistResponse:
+        payload = self._extract_first_json_object(ai_text) or {}
+
+        algorithm = str(payload.get("algorithm") or "").strip()
+        structure = str(payload.get("structure") or "").strip()
+        complexity = str(payload.get("complexity") or "").strip()
+        rationale = str(payload.get("rationale") or "").strip()
+        optimized_code = str(payload.get("optimized_code") or "").strip()
+
+        if not optimized_code:
+            optimized_code = self._extract_code_block(ai_text, language) or ""
+
+        explanation = str(payload.get("explanation") or "").strip()
+        warnings: List[str] = []
+
+        fallback_plan = None
+        if not algorithm or not structure or not optimized_code:
+            fallback_plan = self._fallback_intent_plan(intent_prompt, language)
+            algorithm = algorithm or str(fallback_plan.get("algorithm") or "")
+            structure = structure or str(fallback_plan.get("structure") or "")
+            complexity = complexity or str(fallback_plan.get("complexity") or "")
+            rationale = rationale or str(fallback_plan.get("rationale") or "")
+            optimized_code = optimized_code or str(fallback_plan.get("optimized_code") or "")
+            warnings.append(
+                "Intent mode filled missing model fields with deterministic optimization fallback."
+            )
+
+        if not explanation:
+            explanation = self._strip_code_blocks(ai_text).strip()
+        if not explanation and fallback_plan:
+            explanation = str(fallback_plan.get("explanation") or "")
+        if not explanation:
+            explanation = (
+                "Intent-based coding selected an optimization strategy and produced updated code "
+                "focused on performance."
+            )
+
+        suggestions = self._intent_suggestions_from_payload(payload, max_suggestions)
+        if not suggestions and fallback_plan:
+            fallback_suggestions = fallback_plan.get("suggestions") or []
+            suggestions = [
+                CodeSuggestion(title=f"Optimization {index}", description=str(item)[:280])
+                for index, item in enumerate(fallback_suggestions[:max_suggestions], start=1)
+            ]
+        if not suggestions:
+            suggestions = self._extract_suggestions(explanation, max_items=max_suggestions)
+
+        intent_decision = IntentDecision(
+            algorithm=algorithm,
+            structure=structure,
+            complexity=complexity,
+            rationale=rationale,
+        )
+
+        return CodeAssistResponse(
+            updated_code=optimized_code or None,
+            improved_code=optimized_code or None,
+            optimized_code=optimized_code or None,
+            explanation=explanation,
+            suggestions=suggestions,
+            context_used=context_used,
+            context_sources=context_sources,
+            action=CodeAction.INTENT,
+            language=language,
+            intent_mode=True,
+            intent_decision=intent_decision,
+            learning_mode=False,
+            learning_explanation=None,
+            warnings=warnings,
+            cached=False,
+        )
+
+    @staticmethod
     def _extract_learning_suggestions(
         learning_explanation: CodeLearningExplanation,
         max_items: int = 5,
@@ -170,6 +449,10 @@ class CodeWorkspaceCodeService:
             CodeAction.REFACTOR: (
                 "You are a senior refactoring specialist. Improve readability and maintainability "
                 "without changing behavior."
+            ),
+            CodeAction.INTENT: (
+                "You are a senior performance engineer. Translate intent into optimized code and "
+                "explicitly choose algorithm and data structure."
             ),
         }
         return (
@@ -262,6 +545,34 @@ class CodeWorkspaceCodeService:
                 learning_explanation=learning_explanation,
                 warnings=warnings,
                 cached=False,
+            )
+
+            self._cache_set(cache_key, response)
+            return response
+
+        if request.action == CodeAction.INTENT:
+            composite_prompt = self.context_service.build_prompt(
+                user_knowledge=user_knowledge,
+                code=code,
+                task=(
+                    f"User intent: {prompt}\n"
+                    "Decide the best algorithm and structure for optimization and return optimized code."
+                ),
+                max_code_chars=settings.CODE_ASSIST_MAX_CODE_CHARS,
+            )
+
+            ai_text = await llama_service.get_ai_response(
+                composite_prompt,
+                system_prompt=self._intent_system_prompt(request.language),
+            )
+
+            response = self._build_intent_response(
+                ai_text=ai_text,
+                intent_prompt=prompt,
+                language=request.language,
+                context_used=bool(request.include_context and context_sources),
+                context_sources=context_sources,
+                max_suggestions=max(1, min(request.max_suggestions, 10)),
             )
 
             self._cache_set(cache_key, response)

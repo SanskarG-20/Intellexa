@@ -38,6 +38,7 @@ class CodeAction(str, Enum):
     GENERATE = "generate"
     FIX = "fix"
     REFACTOR = "refactor"
+    INTENT = "intent"
 
 
 class BugSeverity(str, Enum):
@@ -189,6 +190,15 @@ class CodeLearningExplanation(BaseModel):
     step_by_step: List[str] = Field(default_factory=list, max_length=MAX_LEARNING_STEPS)
     logic_breakdown: List[str] = Field(default_factory=list, max_length=MAX_LEARNING_LOGIC_ITEMS)
     real_world_analogy: str = Field(default="")
+
+
+class IntentDecision(BaseModel):
+    """Algorithm and structure decisions inferred from user intent."""
+
+    algorithm: str = ""
+    structure: str = ""
+    complexity: str = ""
+    rationale: str = ""
 
 
 class TaskModeStep(BaseModel):
@@ -361,12 +371,15 @@ class CodeAssistResponse(BaseModel):
     """Schema for code assistance response."""
     updated_code: Optional[str] = None
     improved_code: Optional[str] = None
+    optimized_code: Optional[str] = None
     explanation: str
     suggestions: List[CodeSuggestion] = Field(default_factory=list)
     context_used: bool = False
     context_sources: List[str] = Field(default_factory=list)
     action: CodeAction
     language: str
+    intent_mode: bool = False
+    intent_decision: Optional[IntentDecision] = None
     learning_mode: bool = False
     learning_explanation: Optional[CodeLearningExplanation] = None
     warnings: List[str] = Field(default_factory=list)

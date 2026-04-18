@@ -14,6 +14,7 @@ export const CodeAction = {
   GENERATE: 'generate',
   FIX: 'fix',
   REFACTOR: 'refactor',
+  INTENT: 'intent',
   LEARN: 'learn',
   TASK: 'task',
   WHY_BROKE: 'why_broke',
@@ -164,6 +165,18 @@ export function useCodeAssist() {
   }, [assist]);
 
   /**
+   * Intent-Based Coding: convert user intent into optimized code.
+   */
+  const intentCode = useCallback(async (intent, code = '', language = 'javascript') => {
+    return assist({
+      code,
+      language,
+      prompt: intent,
+      action: CodeAction.INTENT,
+    });
+  }, [assist]);
+
+  /**
    * Version Intelligence root-cause analysis.
    */
   const whyBroke = useCallback(async ({
@@ -224,6 +237,7 @@ export function useCodeAssist() {
     generate,
     fix,
     refactor,
+    intentCode,
     learn,
     whyBroke,
     clearResponse,

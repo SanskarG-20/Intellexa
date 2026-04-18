@@ -182,19 +182,6 @@ async def get_code_file(
             )
         
         f = result.data[0]
-
-        # Track initial version snapshot for newly created files.
-        if not file.is_folder:
-            try:
-                version_intelligence_service.track_version(
-                    user_id=user_id,
-                    file_id=file_id,
-                    content=file.content,
-                    language=file.language,
-                    reason="file_created",
-                )
-            except Exception:
-                pass
         
         return CodeFileDetail(
             id=f['id'],
@@ -268,6 +255,19 @@ async def create_code_file(
             )
         
         f = result.data[0]
+
+        # Track initial version snapshot for newly created files.
+        if not bool(f.get('is_folder')):
+            try:
+                version_intelligence_service.track_version(
+                    user_id=user_id,
+                    file_id=file_id,
+                    content=file.content,
+                    language=file.language,
+                    reason="file_created",
+                )
+            except Exception:
+                pass
         
         return CodeFileDetail(
             id=f['id'],
