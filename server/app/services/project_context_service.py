@@ -7,10 +7,8 @@ and stores context records with embeddings for AI retrieval.
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import os
-import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -18,29 +16,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from app.core.config import settings
+from app.services.dependency_parser import FileParserLogic
 from app.services.memory.embedding_service import embedding_service
-
-
-JS_IMPORT_RE = re.compile(
-    r"^\s*import\s+(?:.+?\s+from\s+)?['\"]([^'\"]+)['\"]",
-    re.MULTILINE,
-)
-JS_REQUIRE_RE = re.compile(
-    r"require\(\s*['\"]([^'\"]+)['\"]\s*\)",
-    re.MULTILINE,
-)
-JS_FUNCTION_RE = re.compile(
-    r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)",
-    re.MULTILINE,
-)
-JS_ARROW_RE = re.compile(
-    r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>",
-    re.MULTILINE,
-)
-JS_CLASS_RE = re.compile(
-    r"^\s*(?:export\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)",
-    re.MULTILINE,
-)
 
 
 @dataclass
@@ -50,6 +27,8 @@ class ParsedRecord:
     imports: List[str] = field(default_factory=list)
     functions: List[str] = field(default_factory=list)
     classes: List[str] = field(default_factory=list)
+    function_calls: List[str] = field(default_factory=list)
+    call_mapping: Dict[str, List[str]] = field(default_factory=dict)
     dependencies: List[str] = field(default_factory=list)
     embedding: List[float] = field(default_factory=list)
     signature: str = ""
@@ -118,6 +97,7 @@ class ProjectContextService:
 
     def __init__(self) -> None:
         self.project_root = Path(__file__).resolve().parents[3]
+        self._parser = FileParserLogic()
         self.max_files = max(200, int(settings.PROJECT_CONTEXT_MAX_FILES))
         self.max_file_size_bytes = max(4 * 1024, int(settings.PROJECT_CONTEXT_MAX_FILE_SIZE_KB) * 1024)
         self.batch_size = max(10, int(settings.PROJECT_CONTEXT_BATCH_SIZE))
@@ -199,80 +179,43 @@ class ProjectContextService:
                 break
         return unique
 
-    def _parse_python(self, content: str) -> Tuple[List[str], List[str], List[str]]:
-        imports: List[str] = []
-        functions: List[str] = []
-        classes: List[str] = []
-
-        try:
-            tree = ast.parse(content)
-        except Exception:
-            return imports, functions, classes
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    imports.append(alias.name)
-            elif isinstance(node, ast.ImportFrom):
-                base = "." * node.level + (node.module or "")
-                imports.append(base)
-
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                functions.append(node.name)
-            elif isinstance(node, ast.ClassDef):
-                classes.append(node.name)
-                for child in node.body:
-                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        functions.append(f"{node.name}.{child.name}")
-
-        return self._dedupe(imports), self._dedupe(functions), self._dedupe(classes)
-
-    def _parse_js_like(self, content: str) -> Tuple[List[str], List[str], List[str]]:
-        imports = self._dedupe(JS_IMPORT_RE.findall(content) + JS_REQUIRE_RE.findall(content))
-        functions = self._dedupe(JS_FUNCTION_RE.findall(content) + JS_ARROW_RE.findall(content))
-        classes = self._dedupe(JS_CLASS_RE.findall(content))
-        return imports, functions, classes
-
-    def _parse_generic(self, content: str) -> Tuple[List[str], List[str], List[str]]:
-        imports = self._dedupe(JS_IMPORT_RE.findall(content))
-        return imports, [], []
-
     def _build_summary(
         self,
         file_path: str,
         imports: List[str],
         functions: List[str],
         classes: List[str],
+        function_calls: List[str],
     ) -> str:
         suffix = Path(file_path).suffix.lower() or "text"
         symbols = self._dedupe(classes + functions, max_items=5)
         symbol_preview = ", ".join(symbols) if symbols else "none"
         return (
             f"{suffix} file with {len(imports)} imports, "
-            f"{len(functions)} functions, {len(classes)} classes. "
+            f"{len(functions)} functions, {len(classes)} classes, "
+            f"{len(function_calls)} function calls. "
             f"Symbols: {symbol_preview}."
         )
 
     def _parse_file(self, path: Path, rel_path: str, signature: str) -> ParsedRecord:
         content = self._read_text(path)
-        suffix = path.suffix.lower()
-
-        if suffix == ".py":
-            imports, functions, classes = self._parse_python(content)
-        elif suffix in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
-            imports, functions, classes = self._parse_js_like(content)
-        else:
-            imports, functions, classes = self._parse_generic(content)
-
-        summary = self._build_summary(rel_path, imports, functions, classes)
+        artifacts = self._parser.parse(rel_path, content)
+        summary = self._build_summary(
+            rel_path,
+            artifacts.imports,
+            artifacts.functions,
+            artifacts.classes,
+            artifacts.function_calls,
+        )
 
         return ParsedRecord(
             file_path=rel_path,
             summary=summary,
-            imports=imports,
-            functions=functions,
-            classes=classes,
+            imports=artifacts.imports,
+            functions=artifacts.functions,
+            classes=artifacts.classes,
+            function_calls=artifacts.function_calls,
+            call_mapping=artifacts.call_mapping,
             signature=signature,
         )
 
@@ -414,6 +357,42 @@ class ProjectContextService:
         self._generated_at = datetime.now(timezone.utc)
         self._last_scan_ts = time.time()
 
+    async def ensure_index(self, *, refresh: bool = False) -> bool:
+        async with self._lock:
+            cache_hit = not self._should_scan(refresh)
+            if not cache_hit:
+                await self._reindex()
+            return cache_hit
+
+    def get_generated_at(self) -> datetime:
+        return self._generated_at
+
+    def get_records_snapshot(self) -> Dict[str, ParsedRecord]:
+        return {
+            path: ParsedRecord(
+                file_path=record.file_path,
+                summary=record.summary,
+                imports=list(record.imports),
+                functions=list(record.functions),
+                classes=list(record.classes),
+                function_calls=list(record.function_calls),
+                call_mapping={
+                    caller: list(callees)
+                    for caller, callees in record.call_mapping.items()
+                },
+                dependencies=list(record.dependencies),
+                embedding=list(record.embedding),
+                signature=record.signature,
+            )
+            for path, record in self._records_by_path.items()
+        }
+
+    def get_dependency_mapping_snapshot(self) -> Dict[str, List[str]]:
+        return {
+            file_path: list(dependencies)
+            for file_path, dependencies in self._dependency_mapping.items()
+        }
+
     async def get_project_context(
         self,
         *,
@@ -423,46 +402,43 @@ class ProjectContextService:
         include_embeddings: Optional[bool] = None,
     ) -> Dict[str, Any]:
         include_vectors = self.default_include_embeddings if include_embeddings is None else include_embeddings
+        cache_hit = await self.ensure_index(refresh=refresh)
 
-        async with self._lock:
-            cache_hit = not self._should_scan(refresh)
-            if not cache_hit:
-                await self._reindex()
+        records = sorted(self._records_by_path.values(), key=lambda item: item.file_path)
+        bounded_offset = max(0, offset)
+        bounded_limit = max(1, min(limit, 2000))
+        selected = records[bounded_offset : bounded_offset + bounded_limit]
 
-            records = sorted(self._records_by_path.values(), key=lambda item: item.file_path)
-            bounded_offset = max(0, offset)
-            bounded_limit = max(1, min(limit, 2000))
-            selected = records[bounded_offset : bounded_offset + bounded_limit]
-
-            files_payload = [
-                {
-                    "file_path": record.file_path,
-                    "summary": record.summary,
-                    "dependencies": list(record.dependencies),
-                    "imports": list(record.imports),
-                    "functions": list(record.functions),
-                    "classes": list(record.classes),
-                    "embedding": list(record.embedding) if include_vectors else None,
-                }
-                for record in selected
-            ]
-
-            dependency_mapping = {
-                record.file_path: list(record.dependencies)
-                for record in selected
+        files_payload = [
+            {
+                "file_path": record.file_path,
+                "summary": record.summary,
+                "dependencies": list(record.dependencies),
+                "imports": list(record.imports),
+                "functions": list(record.functions),
+                "classes": list(record.classes),
+                "function_calls": list(record.function_calls),
+                "embedding": list(record.embedding) if include_vectors else None,
             }
+            for record in selected
+        ]
 
-            return {
-                "generated_at": self._generated_at,
-                "cache_hit": cache_hit,
-                "total_files": len(records),
-                "returned_files": len(selected),
-                "offset": bounded_offset,
-                "limit": bounded_limit,
-                "file_structure": self._file_structure,
-                "dependency_mapping": dependency_mapping,
-                "files": files_payload,
-            }
+        dependency_mapping = {
+            record.file_path: list(record.dependencies)
+            for record in selected
+        }
+
+        return {
+            "generated_at": self._generated_at,
+            "cache_hit": cache_hit,
+            "total_files": len(records),
+            "returned_files": len(selected),
+            "offset": bounded_offset,
+            "limit": bounded_limit,
+            "file_structure": self._file_structure,
+            "dependency_mapping": dependency_mapping,
+            "files": files_payload,
+        }
 
 
 project_context_service = ProjectContextService()

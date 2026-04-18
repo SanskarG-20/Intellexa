@@ -119,6 +119,33 @@ export async function getProjectContext(options = {}) {
   );
 }
 
+export async function getDependencyGraph(options = {}) {
+  const {
+    refresh = false,
+    includeExternalNodes,
+    maxNodes,
+    maxEdges,
+  } = options;
+
+  const params = { refresh };
+
+  if (typeof includeExternalNodes === "boolean") {
+    params.include_external_nodes = includeExternalNodes;
+  }
+  if (typeof maxNodes === "number") {
+    params.max_nodes = maxNodes;
+  }
+  if (typeof maxEdges === "number") {
+    params.max_edges = maxEdges;
+  }
+
+  return requestWithFallback(
+    ["/v1/dependency-graph", "/dependency-graph"],
+    params,
+  );
+}
+
 export default {
   getProjectContext,
+  getDependencyGraph,
 };

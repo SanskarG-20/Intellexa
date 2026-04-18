@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     PROJECT_CONTEXT_CACHE_TTL_SECONDS: int = 180
     PROJECT_CONTEXT_INCLUDE_EMBEDDINGS_BY_DEFAULT: bool = False
 
+    # Dependency Graph Settings
+    DEPENDENCY_GRAPH_CACHE_TTL_SECONDS: int = 180
+    DEPENDENCY_GRAPH_MAX_NODES: int = 8000
+    DEPENDENCY_GRAPH_MAX_EDGES: int = 20000
+    DEPENDENCY_GRAPH_INCLUDE_EXTERNAL_NODES: bool = True
+
     # Global User ID (Mock)
     MOCK_USER_ID: str = "demo_user"
 

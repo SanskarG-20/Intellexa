@@ -17,6 +17,7 @@ class ProjectContextFile(BaseModel):
     imports: List[str] = Field(default_factory=list)
     functions: List[str] = Field(default_factory=list)
     classes: List[str] = Field(default_factory=list)
+    function_calls: List[str] = Field(default_factory=list)
     embedding: Optional[List[float]] = None
 
 
