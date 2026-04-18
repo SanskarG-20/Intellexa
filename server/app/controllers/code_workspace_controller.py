@@ -19,11 +19,14 @@ from app.schemas.code import (
     LearningModeResponse,
     ProjectRefactorRequest,
     ProjectRefactorResponse,
+    TaskModeRequest,
+    TaskModeResponse,
 )
 from app.services.code_workspace.bug_prediction_service import bug_prediction_service
 from app.services.code_workspace.code_service import code_workspace_code_service
 from app.services.code_workspace.execution_service import code_execution_service
 from app.services.code_workspace.project_refactor_service import project_refactor_engine_service
+from app.services.code_workspace.task_mode_service import task_mode_service
 from app.services.memory.agentic_memory_service import agentic_memory_service
 
 
@@ -190,6 +193,56 @@ class CodeWorkspaceController:
             )
         except Exception:
             # Memory persistence should not block API responses.
+            pass
+
+        return response
+
+    async def task_mode_build(
+        self,
+        request: TaskModeRequest,
+        user_id: str,
+    ) -> TaskModeResponse:
+        try:
+            response = await task_mode_service.build_task_mode_response(
+                request,
+                user_id=user_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Task mode failed: {str(exc)}",
+            ) from exc
+
+        # Persist task-mode snapshots for long-running implementation workflows.
+        try:
+            completed = response.progress.completed_steps
+            total = response.progress.total_steps
+            active_step_id = response.progress.active_step_id or "none"
+            memory_content = (
+                "Code Action: task_mode\n"
+                f"Prompt: {request.prompt}\n"
+                f"Session: {response.task_session_id}\n"
+                f"Progress: {completed}/{total}\n"
+                f"Active Step: {active_step_id}\n"
+                f"Plan Title: {response.title}\n\n"
+                f"Summary:\n{response.summary[:1200]}"
+            )
+            await agentic_memory_service.create_memory(
+                user_id=user_id,
+                content=memory_content,
+                source_type="code",
+                source_id=response.task_session_id,
+                metadata={
+                    "task_mode": True,
+                    "completed_steps": completed,
+                    "total_steps": total,
+                    "active_step_id": response.progress.active_step_id,
+                    "next_step_id": response.progress.next_step_id,
+                },
+            )
+        except Exception:
             pass
 
         return response

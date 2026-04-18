@@ -15,6 +15,7 @@ export const CodeAction = {
   FIX: 'fix',
   REFACTOR: 'refactor',
   LEARN: 'learn',
+  TASK: 'task',
 };
 
 /**
@@ -34,16 +35,30 @@ export function useCodeAssist() {
     setError(null);
     
     try {
-      const result = await codeFileService.codeAssist({
-        code: request.code || '',
-        language: request.language || 'javascript',
-        prompt: request.prompt,
-        action: request.action || CodeAction.EXPLAIN,
-        includeContext: request.includeContext !== false,
-        context: request.context,
-        learningMode: request.learningMode === true,
-        maxSuggestions: request.maxSuggestions || 5,
-      });
+      const isTaskMode = request.taskMode === true || request.action === CodeAction.TASK;
+
+      const result = isTaskMode
+        ? await codeFileService.taskModeBuild({
+            prompt: request.prompt,
+            code: request.code || '',
+            language: request.language || 'javascript',
+            includeContext: request.includeContext !== false,
+            context: request.context,
+            taskSessionId: request.taskSessionId,
+            completedStepIds: request.completedStepIds || [],
+            activeStepId: request.activeStepId,
+            regeneratePlan: request.regeneratePlan === true,
+          })
+        : await codeFileService.codeAssist({
+            code: request.code || '',
+            language: request.language || 'javascript',
+            prompt: request.prompt,
+            action: request.action || CodeAction.EXPLAIN,
+            includeContext: request.includeContext !== false,
+            context: request.context,
+            learningMode: request.learningMode === true,
+            maxSuggestions: request.maxSuggestions || 5,
+          });
       
       setResponse(result);
       

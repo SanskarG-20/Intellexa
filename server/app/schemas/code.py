@@ -22,6 +22,11 @@ MAX_PROJECT_REFACTOR_TOTAL_CHARS = 1200000
 MAX_PROJECT_REFACTOR_INSTRUCTION_CHARS = 4000
 MAX_LEARNING_STEPS = 10
 MAX_LEARNING_LOGIC_ITEMS = 8
+MAX_TASK_MODE_STEPS = 12
+MAX_TASK_MODE_STEP_CODE_CHARS = 12000
+MAX_TASK_MODE_STEP_TITLE_CHARS = 140
+MAX_TASK_MODE_SUMMARY_CHARS = 1200
+MAX_TASK_MODE_SESSION_ID_CHARS = 128
 
 
 class CodeAction(str, Enum):
@@ -40,6 +45,14 @@ class BugSeverity(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class TaskStepStatus(str, Enum):
+    """Lifecycle status for one Task Mode step."""
+
+    TODO = "todo"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
 
 
 # ============================================================================
@@ -173,6 +186,106 @@ class CodeLearningExplanation(BaseModel):
     step_by_step: List[str] = Field(default_factory=list, max_length=MAX_LEARNING_STEPS)
     logic_breakdown: List[str] = Field(default_factory=list, max_length=MAX_LEARNING_LOGIC_ITEMS)
     real_world_analogy: str = Field(default="")
+
+
+class TaskModeStep(BaseModel):
+    """One generated implementation step for Task Mode."""
+
+    id: str = Field(..., min_length=1, max_length=64)
+    title: str = Field(..., min_length=1, max_length=MAX_TASK_MODE_STEP_TITLE_CHARS)
+    description: str = Field(default="", max_length=800)
+    code: str = Field(default="", max_length=MAX_TASK_MODE_STEP_CODE_CHARS)
+    status: TaskStepStatus = Field(default=TaskStepStatus.TODO)
+    acceptance_criteria: List[str] = Field(default_factory=list, max_length=8)
+
+    @field_validator("id", "title", "description", "code", mode="before")
+    @classmethod
+    def normalize_text_fields(cls, value):
+        return str(value or "").strip()
+
+
+class TaskModeProgress(BaseModel):
+    """Progress snapshot for a Task Mode session."""
+
+    total_steps: int = 0
+    completed_steps: int = 0
+    completion_percent: float = 0.0
+    active_step_id: Optional[str] = None
+    next_step_id: Optional[str] = None
+
+
+class TaskModeRequest(BaseModel):
+    """Request schema for AI Project Builder Task Mode."""
+
+    prompt: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_CODE_ASSIST_PROMPT_CHARS,
+        description="Feature request. Example: Build a feature",
+    )
+    code: str = Field(default="", max_length=MAX_CODE_ASSIST_CODE_CHARS)
+    language: str = Field(default="javascript", max_length=50)
+    include_context: bool = Field(default=True)
+    context: Optional[str] = Field(default=None, max_length=MAX_CODE_ASSIST_CONTEXT_CHARS)
+    session_id: Optional[str] = Field(default=None, max_length=MAX_TASK_MODE_SESSION_ID_CHARS)
+    completed_step_ids: List[str] = Field(default_factory=list, max_length=MAX_TASK_MODE_STEPS)
+    active_step_id: Optional[str] = Field(default=None, max_length=64)
+    regenerate_plan: bool = Field(default=False)
+
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt(cls, value: str) -> str:
+        normalized = " ".join(str(value or "").split()).strip()
+        if not normalized:
+            raise ValueError("prompt must not be empty")
+        return normalized
+
+    @field_validator("language")
+    @classmethod
+    def normalize_language(cls, value: str) -> str:
+        return str(value or "javascript").strip().lower()
+
+    @field_validator("session_id", "active_step_id", mode="before")
+    @classmethod
+    def normalize_optional_ids(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @field_validator("completed_step_ids", mode="before")
+    @classmethod
+    def normalize_completed_ids(cls, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("completed_step_ids must be a list")
+
+        seen = set()
+        deduped = []
+        for item in value:
+            normalized = str(item or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+
+        return deduped
+
+
+class TaskModeResponse(BaseModel):
+    """Response schema for AI Project Builder Task Mode."""
+
+    task_mode: bool = True
+    task_session_id: str
+    title: str = Field(default="Project Plan", max_length=MAX_TASK_MODE_STEP_TITLE_CHARS)
+    summary: str = Field(default="", max_length=MAX_TASK_MODE_SUMMARY_CHARS)
+    steps: List[TaskModeStep] = Field(default_factory=list, max_length=MAX_TASK_MODE_STEPS)
+    progress: TaskModeProgress = Field(default_factory=TaskModeProgress)
+    context_used: bool = False
+    context_sources: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    cached: bool = False
 
 
 class LearningModeRequest(BaseModel):

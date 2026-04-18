@@ -215,6 +215,23 @@ export async function codeAssist(request) {
 }
 
 /**
+ * Build or update Task Mode (AI Project Builder) session.
+ */
+export async function taskModeBuild(request) {
+  return requestWithFallback('post', `${CODE_API_PREFIX}/task-mode`, {
+    prompt: request.prompt,
+    code: request.code || '',
+    language: request.language || 'javascript',
+    include_context: request.includeContext !== false,
+    context: request.context,
+    session_id: request.taskSessionId || null,
+    completed_step_ids: request.completedStepIds || [],
+    active_step_id: request.activeStepId || null,
+    regenerate_plan: request.regeneratePlan === true,
+  });
+}
+
+/**
  * Predict potential bugs before execution.
  */
 export async function bugPredict(request) {
@@ -331,6 +348,7 @@ export default {
   importCodeFiles,
   getFileTree,
   codeAssist,
+  taskModeBuild,
   bugPredict,
   learningModeExplain,
   codeAutocomplete,

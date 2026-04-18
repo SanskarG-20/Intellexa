@@ -5180,6 +5180,20 @@ button {
   color: var(--text-muted);
 }
 
+.task-mode-summary,
+.task-mode-progress,
+.task-mode-status,
+.task-mode-criteria {
+  margin-top: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.task-mode-status {
+  font-family: var(--font-mono);
+  color: var(--accent-soft);
+}
+
 .code-assistant-loading {
   text-align: center;
   padding: 1rem;

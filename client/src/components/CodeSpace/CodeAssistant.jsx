@@ -10,6 +10,10 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
   const [prompt, setPrompt] = useState('');
   const [action, setAction] = useState('explain');
   const [learningMode, setLearningMode] = useState(false);
+  const [taskMode, setTaskMode] = useState(false);
+  const [taskSessionId, setTaskSessionId] = useState(null);
+  const [taskPrompt, setTaskPrompt] = useState('');
+  const [taskCompletedStepIds, setTaskCompletedStepIds] = useState([]);
   const [messages, setMessages] = useState([]);
   
   const messagesEndRef = useRef(null);
@@ -33,14 +37,24 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
     e.preventDefault();
     
     if (!prompt.trim()) return;
+
+    const normalizedPrompt = prompt.trim();
+    const shouldRegenerateTaskPlan = (
+      taskMode
+      && Boolean(taskSessionId)
+      && Boolean(taskPrompt)
+      && normalizedPrompt !== taskPrompt
+    );
+    const completedStepIds = shouldRegenerateTaskPlan ? [] : taskCompletedStepIds;
     
     // Add user message
     const userMessage = {
       id: Date.now(),
       role: 'user',
-      content: prompt,
+      content: normalizedPrompt,
       action,
       learningMode,
+      taskMode,
     };
     
     setMessages(prev => [...prev, userMessage]);
@@ -50,23 +64,48 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
     const result = await assist({
       code: activeFile?.content || '',
       language: activeFile?.language || 'javascript',
-      prompt,
+      prompt: normalizedPrompt,
       action,
       learningMode,
+      taskMode,
+      taskSessionId,
+      completedStepIds,
+      regeneratePlan: shouldRegenerateTaskPlan,
     });
     
     // Add AI message
     if (result) {
+      if (result.task_mode) {
+        const completedIds = (result.steps || [])
+          .filter((step) => step.status === 'completed')
+          .map((step) => step.id);
+
+        setTaskMode(true);
+        setLearningMode(false);
+        setAction('task');
+        setTaskSessionId(result.task_session_id || null);
+        setTaskPrompt(normalizedPrompt);
+        setTaskCompletedStepIds(completedIds);
+      }
+
       const aiMessage = {
         id: Date.now() + 1,
         role: 'assistant',
-        content: result.explanation,
+        content: result.task_mode
+          ? (result.summary || result.title || 'Task plan created.')
+          : result.explanation,
         improvedCode: result.updated_code || result.improved_code,
         suggestions: result.suggestions,
         contextUsed: result.context_used,
         contextSources: result.context_sources,
         learningMode: result.learning_mode,
         learningExplanation: result.learning_explanation,
+        taskMode: result.task_mode === true,
+        taskSessionId: result.task_session_id,
+        taskTitle: result.title,
+        taskSummary: result.summary,
+        taskSteps: result.steps || [],
+        taskProgress: result.progress,
         warnings: result.warnings || [],
       };
       
@@ -75,16 +114,97 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
     }
     
     setPrompt('');
-  }, [prompt, action, learningMode, activeFile, assist]);
+  }, [
+    prompt,
+    action,
+    learningMode,
+    taskMode,
+    taskSessionId,
+    taskPrompt,
+    taskCompletedStepIds,
+    activeFile,
+    assist,
+    onInteraction,
+  ]);
+
+  const handleTaskStepComplete = useCallback(async (stepId) => {
+    if (!stepId || !taskSessionId || !taskPrompt) {
+      return;
+    }
+
+    const completedStepIds = Array.from(new Set([...taskCompletedStepIds, stepId]));
+    setTaskCompletedStepIds(completedStepIds);
+
+    const userMessage = {
+      id: Date.now(),
+      role: 'user',
+      content: `Mark ${stepId} as completed`,
+      action: 'task',
+      taskMode: true,
+    };
+    setMessages((prev) => [...prev, userMessage]);
+    onInteraction?.({ type: 'user', payload: userMessage });
+
+    const result = await assist({
+      code: activeFile?.content || '',
+      language: activeFile?.language || 'javascript',
+      prompt: taskPrompt,
+      action: 'task',
+      taskMode: true,
+      taskSessionId,
+      completedStepIds,
+    });
+
+    if (!result || !result.task_mode) {
+      return;
+    }
+
+    const normalizedCompletedIds = (result.steps || [])
+      .filter((step) => step.status === 'completed')
+      .map((step) => step.id);
+    setTaskSessionId(result.task_session_id || taskSessionId);
+    setTaskCompletedStepIds(normalizedCompletedIds);
+
+    const aiMessage = {
+      id: Date.now() + 1,
+      role: 'assistant',
+      content: result.summary || result.title || 'Task progress updated.',
+      taskMode: true,
+      taskSessionId: result.task_session_id,
+      taskTitle: result.title,
+      taskSummary: result.summary,
+      taskSteps: result.steps || [],
+      taskProgress: result.progress,
+      contextUsed: result.context_used,
+      contextSources: result.context_sources,
+      warnings: result.warnings || [],
+      suggestions: [],
+    };
+    setMessages((prev) => [...prev, aiMessage]);
+    onInteraction?.({ type: 'assistant', payload: aiMessage });
+  }, [
+    taskSessionId,
+    taskPrompt,
+    taskCompletedStepIds,
+    assist,
+    activeFile,
+    onInteraction,
+  ]);
 
   // Quick action buttons
   const handleQuickAction = useCallback((quickAction) => {
     if (quickAction === 'learning') {
       setAction('explain');
       setLearningMode(true);
+      setTaskMode(false);
+    } else if (quickAction === 'task') {
+      setAction('task');
+      setLearningMode(false);
+      setTaskMode(true);
     } else {
       setAction(quickAction);
       setLearningMode(false);
+      setTaskMode(false);
     }
 
     const prompts = {
@@ -92,6 +212,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
       fix: 'Find and fix any issues',
       refactor: 'Improve code quality and performance',
       learning: 'Teach me this code step-by-step with logic breakdown and analogy',
+      task: 'Build a feature',
     };
     setPrompt(prompts[quickAction] || '');
     inputRef.current?.focus();
@@ -114,7 +235,11 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           onChange={(e) => {
             const next = e.target.value;
             setAction(next);
+            setTaskMode(next === 'task');
             if (next !== 'explain') {
+              setLearningMode(false);
+            }
+            if (next === 'task') {
               setLearningMode(false);
             }
           }}
@@ -123,6 +248,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           <option value="generate">Generate</option>
           <option value="fix">Fix Bugs</option>
           <option value="refactor">Refactor</option>
+          <option value="task">Task Builder</option>
         </select>
         
         <div className="code-assistant-context-badge">
@@ -155,6 +281,12 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           onClick={() => handleQuickAction('learning')}
         >
           Learning
+        </button>
+        <button
+          className={`quick-action-btn ${taskMode ? 'active' : ''}`}
+          onClick={() => handleQuickAction('task')}
+        >
+          Task Builder
         </button>
       </div>
 
@@ -190,6 +322,56 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
               <div className="message-content">
                 {message.content}
               </div>
+
+              {message.taskMode && message.taskSteps?.length > 0 && (
+                <div className="suggestions-section">
+                  <span className="suggestions-title">
+                    {message.taskTitle || 'Project Builder Plan'}
+                  </span>
+                  {message.taskSummary && (
+                    <p className="task-mode-summary">{message.taskSummary}</p>
+                  )}
+                  {message.taskProgress && (
+                    <p className="task-mode-progress">
+                      Progress: {message.taskProgress.completed_steps}/{message.taskProgress.total_steps}
+                      {' '}
+                      ({message.taskProgress.completion_percent}%)
+                    </p>
+                  )}
+
+                  <ul className="suggestions-list">
+                    {message.taskSteps.map((step) => (
+                      <li key={step.id}>
+                        <strong>{step.title}</strong>
+                        {step.description && <p>{step.description}</p>}
+                        <p className="task-mode-status">Status: {step.status}</p>
+
+                        {step.code && (
+                          <pre className="improved-code">
+                            <code>{step.code}</code>
+                          </pre>
+                        )}
+
+                        {step.acceptance_criteria?.length > 0 && (
+                          <p className="task-mode-criteria">
+                            Acceptance: {step.acceptance_criteria.join(' | ')}
+                          </p>
+                        )}
+
+                        {step.status !== 'completed' && message.taskSessionId && (
+                          <button
+                            className="apply-code-btn"
+                            disabled={isAssistLoading}
+                            onClick={() => handleTaskStepComplete(step.id)}
+                          >
+                            Mark Step Complete
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {message.learningMode && message.learningExplanation && (
                 <div className="suggestions-section">
@@ -273,7 +455,13 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           className="code-assistant-input"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder={learningMode ? 'Ask for a deep teaching explanation...' : 'Ask about your code...'}
+          placeholder={
+            taskMode
+              ? 'Describe the feature to build...'
+              : learningMode
+                ? 'Ask for a deep teaching explanation...'
+                : 'Ask about your code...'
+          }
           rows={2}
           disabled={isAssistLoading}
           onKeyDown={(e) => {

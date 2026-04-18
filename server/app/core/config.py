@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     CODE_ASSIST_MAX_CODE_CHARS: int = 120000
     CODE_ASSIST_CACHE_TTL_SECONDS: int = 120
     CODE_ASSIST_CACHE_MAX_ITEMS: int = 500
+    TASK_MODE_MAX_STEPS: int = 8
+    TASK_MODE_SESSION_TTL_SECONDS: int = 3600
+    TASK_MODE_MAX_SESSIONS: int = 1000
 
     # Project Refactor Engine Settings
     PROJECT_REFACTOR_CACHE_TTL_SECONDS: int = 180

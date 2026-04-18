@@ -24,6 +24,8 @@ from app.schemas.code import (
     CodeFileImportItem,
     CodeAssistRequest,
     CodeAssistResponse,
+    TaskModeRequest,
+    TaskModeResponse,
 )
 
 
@@ -464,6 +466,15 @@ async def code_assist(
     Integrates with RAG for context-aware assistance.
     """
     return await code_workspace_controller.assist(request, user_id=user_id)
+
+
+@router.post("/task-mode", response_model=TaskModeResponse)
+async def task_mode_build(
+    request: TaskModeRequest,
+    user_id: str = Depends(_get_user_id),
+):
+    """AI Project Builder endpoint: creates and updates step-wise feature plans."""
+    return await code_workspace_controller.task_mode_build(request, user_id=user_id)
 
 
 # ============================================================================

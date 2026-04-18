@@ -23,6 +23,8 @@ from app.schemas.code import (
     LearningModeResponse,
     ProjectRefactorRequest,
     ProjectRefactorResponse,
+    TaskModeRequest,
+    TaskModeResponse,
 )
 
 
@@ -123,3 +125,21 @@ async def post_project_refactor_versioned(
 ):
     """Versioned alias for project-wide AI refactoring."""
     return await code_workspace_controller.project_refactor(request, user_id=user_id)
+
+
+@router.post("/task-mode", response_model=TaskModeResponse)
+async def post_task_mode(
+    request: TaskModeRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for AI Project Builder Task Mode."""
+    return await code_workspace_controller.task_mode_build(request, user_id=user_id)
+
+
+@router.post("/api/v1/code/task-mode", response_model=TaskModeResponse)
+async def post_task_mode_versioned(
+    request: TaskModeRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Versioned alias for AI Project Builder Task Mode."""
+    return await code_workspace_controller.task_mode_build(request, user_id=user_id)
