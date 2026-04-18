@@ -36,13 +36,6 @@ function getRuntimeMode() {
   return { reducedMotion, isLiteMode };
 }
 
-function isSameRuntimeMode(prev, next) {
-  return (
-    Boolean(prev?.reducedMotion) === Boolean(next?.reducedMotion) &&
-    Boolean(prev?.isLiteMode) === Boolean(next?.isLiteMode)
-  );
-}
-
 /* ── Headline structure: lines of words, with accent flags ── */
 const HEADLINE_LINES = [
   [
@@ -124,7 +117,6 @@ function App() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [runtimeMode, setRuntimeMode] = useState(() => getRuntimeMode());
-  const [isMotionReady, setIsMotionReady] = useState(false);
   const [isHeroSplineLoaded, setIsHeroSplineLoaded] = useState(false);
   const [shouldRenderHeroSpline, setShouldRenderHeroSpline] = useState(false);
   const [canLoadHeroSpline, setCanLoadHeroSpline] = useState(false);
@@ -137,101 +129,38 @@ function App() {
   useEffect(() => {
     // Guard against stale inline styles from interrupted route transitions.
     document.body.style.removeProperty("opacity");
-    document.body.style.removeProperty("visibility");
     document.body.style.opacity = "1";
-    document.body.style.visibility = "visible";
+
+    return () => {
+      document.body.style.removeProperty("opacity");
+      document.body.style.opacity = "1";
+    };
   }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
 
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let rafId = null;
-
-    const updateMode = () => {
-      const nextMode = getRuntimeMode();
-      setRuntimeMode((prev) => (isSameRuntimeMode(prev, nextMode) ? prev : nextMode));
-    };
-
-    const scheduleModeUpdate = () => {
-      if (rafId !== null) {
-        return;
-      }
-
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        updateMode();
-      });
-    };
+    const updateMode = () => setRuntimeMode(getRuntimeMode());
 
     updateMode();
 
     if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", scheduleModeUpdate);
+      mediaQuery.addEventListener("change", updateMode);
     } else if (typeof mediaQuery.addListener === "function") {
-      mediaQuery.addListener(scheduleModeUpdate);
+      mediaQuery.addListener(updateMode);
     }
 
-    window.addEventListener("resize", scheduleModeUpdate, { passive: true });
+    window.addEventListener("resize", updateMode);
 
     return () => {
       if (typeof mediaQuery.removeEventListener === "function") {
-        mediaQuery.removeEventListener("change", scheduleModeUpdate);
+        mediaQuery.removeEventListener("change", updateMode);
       } else if (typeof mediaQuery.removeListener === "function") {
-        mediaQuery.removeListener(scheduleModeUpdate);
+        mediaQuery.removeListener(updateMode);
       }
 
-      window.removeEventListener("resize", scheduleModeUpdate);
-      if (rafId !== null) {
-        window.cancelAnimationFrame(rafId);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return undefined;
-    }
-
-    let cancelled = false;
-    let timeoutId;
-    const maxWaitId = window.setTimeout(() => {
-      if (!cancelled) {
-        setIsMotionReady(true);
-      }
-    }, 900);
-
-    const markReady = () => {
-      if (!cancelled) {
-        setIsMotionReady(true);
-      }
-    };
-
-    if (document.fonts?.ready) {
-      document.fonts
-        .ready
-        .then(() => {
-          if (cancelled) {
-            return;
-          }
-
-          window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(markReady);
-          });
-        })
-        .catch(() => {
-          timeoutId = window.setTimeout(markReady, 160);
-        });
-    } else {
-      timeoutId = window.setTimeout(markReady, 160);
-    }
-
-    return () => {
-      cancelled = true;
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-      window.clearTimeout(maxWaitId);
+      window.removeEventListener("resize", updateMode);
     };
   }, []);
 
@@ -279,7 +208,7 @@ function App() {
   }, [isLiteMode, reducedMotion]);
 
   useEffect(() => {
-    if (isLiteMode || !isMotionReady) {
+    if (isLiteMode) {
       setCanLoadHeroSpline(false);
       return undefined;
     }
@@ -310,10 +239,10 @@ function App() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [isLiteMode, isMotionReady]);
+  }, [isLiteMode]);
 
   useEffect(() => {
-    if (isLiteMode || !isMotionReady) {
+    if (isLiteMode) {
       setShouldRenderHeroSpline(false);
       return undefined;
     }
@@ -340,15 +269,11 @@ function App() {
     return () => {
       heroObserver?.disconnect();
     };
-  }, [isLiteMode, isMotionReady]);
+  }, [isLiteMode]);
 
   /* GSAP motion system */
   useLayoutEffect(() => {
     gsap.set("body", { opacity: 1, clearProps: "opacity" });
-
-    if (!isMotionReady) {
-      return undefined;
-    }
 
     if (isLiteMode || reducedMotion) {
       return undefined;
@@ -548,7 +473,7 @@ function App() {
       gsap.set("body", { opacity: 1, clearProps: "opacity" });
       document.body.style.removeProperty("opacity");
     };
-  }, [isLiteMode, reducedMotion, isMotionReady]);
+  }, [isLiteMode, reducedMotion]);
 
   const handleNavClick = () => setIsMobileMenuOpen(false);
 
@@ -578,11 +503,7 @@ function App() {
   let wordIndex = 0;
 
   return (
-    <div
-      className={`landing-page ${isLiteMode ? "lite-mode" : ""} ${
-        isMotionReady ? "landing-ready" : "landing-pending"
-      }`}
-    >
+    <div className={`landing-page ${isLiteMode ? "lite-mode" : ""}`}>
       {/* Fixed glow blobs */}
       <div className="glow-blob glow-blob-1" />
       <div className="glow-blob glow-blob-2" />
