@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ChatHistorySidebar from "../components/ChatHistorySidebar";
 import VoiceMode from "../components/VoiceMode";
 import KnowledgePanel from "../components/KnowledgePanel";
+import { CodeSpaceLayout } from "../components/CodeSpace";
+import { CodeWorkspaceProvider } from "../context/CodeWorkspaceContext";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useApiService } from "../services/apiService";
 import {
@@ -1810,14 +1812,21 @@ function Dashboard() {
                 className={`dashboard-view-tab ${activeView === "chat" ? "is-active" : ""}`}
                 onClick={() => setActiveView("chat")}
               >
-                💬 Chat
+                Chat
+              </button>
+              <button
+                type="button"
+                className={`dashboard-view-tab ${activeView === "code" ? "is-active" : ""}`}
+                onClick={() => setActiveView("code")}
+              >
+                Code
               </button>
               <button
                 type="button"
                 className={`dashboard-view-tab ${activeView === "knowledge" ? "is-active" : ""}`}
                 onClick={() => setActiveView("knowledge")}
               >
-                📚 My Knowledge
+                Knowledge
               </button>
             </div>
             <button
@@ -1848,6 +1857,10 @@ function Dashboard() {
             onStopVoiceMode={handleStopVoiceMode}
             onInterruptActiveResponse={handleInterruptResponse}
           />
+        ) : activeView === "code" ? (
+          <CodeWorkspaceProvider>
+            <CodeSpaceLayout />
+          </CodeWorkspaceProvider>
         ) : activeView === "knowledge" ? (
           <KnowledgePanel />
         ) : (
