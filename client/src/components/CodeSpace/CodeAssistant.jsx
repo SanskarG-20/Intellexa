@@ -117,12 +117,18 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
       const aiMessage = {
         id: Date.now() + 1,
         role: 'assistant',
+        action: result.action || action,
         content: result.task_mode
           ? (result.summary || result.title || 'Task plan created.')
           : result.explanation,
         improvedCode: result.optimized_code || result.updated_code || result.improved_code,
         testCases: result.test_cases || [],
         edgeCases: result.edge_cases || [],
+        securityFindings: result.security_findings || [],
+        unsafeInputs: result.unsafe_inputs || [],
+        apiLeaks: result.api_leaks || [],
+        injectionRisks: result.injection_risks || [],
+        securitySeverity: result.security_severity || 'none',
         suggestions: result.suggestions,
         contextUsed: result.context_used,
         contextSources: result.context_sources,
@@ -263,6 +269,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
     const prompts = {
       explain: 'Explain this code',
       test: 'Generate unit tests for this code with edge cases',
+      security: 'Scan this code for unsafe inputs, API leaks, and injection risks',
       fix: 'Find and fix any issues',
       refactor: 'Improve code quality and performance',
       intent: 'I want faster search',
@@ -314,6 +321,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
           <option value="explain">Explain</option>
           <option value="generate">Generate</option>
           <option value="test">Test Generator</option>
+          <option value="security">Security Scanner</option>
           <option value="fix">Fix Bugs</option>
           <option value="refactor">Refactor</option>
           <option value="intent">Intent Code</option>
@@ -345,6 +353,12 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
           onClick={() => handleQuickAction('test')}
         >
           Test Gen
+        </button>
+        <button
+          className={`quick-action-btn ${action === 'security' ? 'active' : ''}`}
+          onClick={() => handleQuickAction('security')}
+        >
+          Security
         </button>
         <button
           className={`quick-action-btn ${action === 'refactor' ? 'active' : ''}`}
@@ -383,7 +397,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
         {messages.length === 0 ? (
           <div className="code-assistant-welcome">
             <h4>AI Code Assistant</h4>
-            <p>Ask me to explain, generate, fix, or refactor code.</p>
+            <p>Ask me to explain, generate, test, secure, fix, or refactor code.</p>
             {activeFile?.content && (
               <p className="code-assistant-context-hint">
                 I have access to your current file and knowledge context.
@@ -569,6 +583,65 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
                   </ul>
                 </div>
               )}
+
+              {(message.securityFindings?.length > 0 || message.action === 'security') && (
+                <div className="suggestions-section">
+                  <span className="suggestions-title">
+                    Security Findings ({String(message.securitySeverity || 'none').toUpperCase()})
+                  </span>
+
+                  {message.securityFindings?.length === 0 ? (
+                    <p>No high-confidence vulnerabilities detected by static heuristics.</p>
+                  ) : (
+                    <>
+                      {message.unsafeInputs?.length > 0 && (
+                        <>
+                          <span className="suggestions-title">Unsafe Inputs</span>
+                          <ul className="suggestions-list">
+                            {message.unsafeInputs.map((item, i) => (
+                              <li key={`unsafe-input-${i}`}>
+                                <strong>{item.message}</strong>
+                                {item.line && <p>Line {item.line}</p>}
+                                {item.remediation && <p>{item.remediation}</p>}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+
+                      {message.apiLeaks?.length > 0 && (
+                        <>
+                          <span className="suggestions-title">API Leaks</span>
+                          <ul className="suggestions-list">
+                            {message.apiLeaks.map((item, i) => (
+                              <li key={`api-leak-${i}`}>
+                                <strong>{item.message}</strong>
+                                {item.line && <p>Line {item.line}</p>}
+                                {item.remediation && <p>{item.remediation}</p>}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+
+                      {message.injectionRisks?.length > 0 && (
+                        <>
+                          <span className="suggestions-title">Injection Risks</span>
+                          <ul className="suggestions-list">
+                            {message.injectionRisks.map((item, i) => (
+                              <li key={`injection-risk-${i}`}>
+                                <strong>{item.message}</strong>
+                                {item.line && <p>Line {item.line}</p>}
+                                {item.remediation && <p>{item.remediation}</p>}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
               
               {message.suggestions?.length > 0 && (
                 <div className="suggestions-section">
@@ -619,6 +692,8 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
               ? 'Describe the feature to build...'
               : whyBrokeMode
                 ? 'Describe the breakage or paste the error...'
+              : action === 'security'
+                ? 'Ask for a security scan focus or paste risky code...'
               : intentMode
                 ? 'Describe the outcome you want optimized (e.g., I want faster search)...'
               : learningMode

@@ -367,6 +367,17 @@ export async function bugPredict(request) {
 }
 
 /**
+ * Scan code for security vulnerabilities.
+ */
+export async function securityScan(request) {
+  return requestWithFallback('post', `${CODE_API_PREFIX}/security-scan`, {
+    code: request.code || '',
+    language: request.language || 'javascript',
+    filename: request.filename,
+  });
+}
+
+/**
  * Request Learning Mode deep explanation for a code snippet.
  */
 export async function learningModeExplain(request) {
@@ -481,6 +492,7 @@ export default {
   codeAssist,
   taskModeBuild,
   bugPredict,
+  securityScan,
   learningModeExplain,
   codeAutocomplete,
   executeCode,

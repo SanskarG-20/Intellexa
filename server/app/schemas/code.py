@@ -45,6 +45,7 @@ class CodeAction(str, Enum):
     REFACTOR = "refactor"
     INTENT = "intent"
     TEST = "test"
+    SECURITY = "security"
 
 
 class BugSeverity(str, Enum):
@@ -55,6 +56,14 @@ class BugSeverity(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class SecurityFindingCategory(str, Enum):
+    """Security scanner finding categories."""
+
+    UNSAFE_INPUT = "unsafe-input"
+    API_LEAK = "api-leak"
+    INJECTION_RISK = "injection-risk"
 
 
 class TaskStepStatus(str, Enum):
@@ -391,6 +400,40 @@ class BugPredictionResponse(BaseModel):
     severity: BugSeverity = BugSeverity.NONE
 
 
+class SecurityScanFinding(BaseModel):
+    """One static security finding from scanner heuristics."""
+
+    category: SecurityFindingCategory
+    message: str
+    severity: BugSeverity
+    line: Optional[int] = None
+    snippet: Optional[str] = None
+    remediation: str = ""
+
+
+class SecurityScanRequest(BaseModel):
+    """Input payload for static security scanning."""
+
+    code: str = Field(..., min_length=1, max_length=MAX_CODE_ASSIST_CODE_CHARS)
+    language: str = Field(default="javascript", max_length=50)
+    filename: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("language")
+    @classmethod
+    def normalize_language(cls, value: str) -> str:
+        return str(value or "javascript").strip().lower()
+
+
+class SecurityScanResponse(BaseModel):
+    """Output payload for static security scanning."""
+
+    findings: List[SecurityScanFinding] = Field(default_factory=list)
+    unsafe_inputs: List[SecurityScanFinding] = Field(default_factory=list)
+    api_leaks: List[SecurityScanFinding] = Field(default_factory=list)
+    injection_risks: List[SecurityScanFinding] = Field(default_factory=list)
+    severity: BugSeverity = BugSeverity.NONE
+
+
 class CodeAssistResponse(BaseModel):
     """Schema for code assistance response."""
     updated_code: Optional[str] = None
@@ -399,6 +442,11 @@ class CodeAssistResponse(BaseModel):
     explanation: str
     test_cases: List[str] = Field(default_factory=list)
     edge_cases: List[str] = Field(default_factory=list)
+    security_findings: List[SecurityScanFinding] = Field(default_factory=list)
+    unsafe_inputs: List[SecurityScanFinding] = Field(default_factory=list)
+    api_leaks: List[SecurityScanFinding] = Field(default_factory=list)
+    injection_risks: List[SecurityScanFinding] = Field(default_factory=list)
+    security_severity: BugSeverity = BugSeverity.NONE
     suggestions: List[CodeSuggestion] = Field(default_factory=list)
     context_used: bool = False
     context_sources: List[str] = Field(default_factory=list)

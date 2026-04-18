@@ -36,6 +36,8 @@ from app.schemas.code import (
     LearningModeResponse,
     ProjectRefactorRequest,
     ProjectRefactorResponse,
+    SecurityScanRequest,
+    SecurityScanResponse,
     TaskModeRequest,
     TaskModeResponse,
 )
@@ -223,6 +225,18 @@ async def post_bug_predict(request: BugPredictionRequest):
 async def post_bug_predict_versioned(request: BugPredictionRequest):
     """Versioned alias for static bug prediction."""
     return await code_workspace_controller.predict_bugs(request)
+
+
+@router.post("/security-scan", response_model=SecurityScanResponse)
+async def post_security_scan(request: SecurityScanRequest):
+    """Canonical endpoint for static security vulnerability scanning."""
+    return await code_workspace_controller.scan_security(request)
+
+
+@router.post("/api/v1/code/security-scan", response_model=SecurityScanResponse)
+async def post_security_scan_versioned(request: SecurityScanRequest):
+    """Versioned alias for static security vulnerability scanning."""
+    return await code_workspace_controller.scan_security(request)
 
 
 @router.post("/learning-mode", response_model=LearningModeResponse)

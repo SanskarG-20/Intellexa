@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
 from app.schemas.code import (
+    BugSeverity,
     CodeAction,
     CodeAssistRequest,
     CodeAssistResponse,
@@ -24,8 +25,10 @@ from app.schemas.code import (
     CodeSuggestion,
     LearningModeRequest,
     LearningModeResponse,
+    SecurityScanRequest,
 )
 from app.services.code_workspace.context_service import code_workspace_context_service
+from app.services.code_workspace.security_scanner_service import security_scanner_service
 from app.services.explanation_service import explanation_service
 from app.services.llama_service import llama_service
 from app.services.memory.user_pattern_service import user_pattern_memory_service
@@ -457,6 +460,51 @@ class CodeWorkspaceCodeService:
 
         return values
 
+    @staticmethod
+    def _security_title(category: str, severity: str) -> str:
+        safe_category = str(category or "security").replace("-", " ").title()
+        safe_severity = str(severity or "medium").upper()
+        return f"{safe_category} ({safe_severity})"
+
+    def _security_scan_suggestions(
+        self,
+        *,
+        findings: List[Any],
+        max_items: int,
+    ) -> List[CodeSuggestion]:
+        suggestions: List[CodeSuggestion] = []
+        for item in findings[:max_items]:
+            category_value = getattr(getattr(item, "category", None), "value", None) or getattr(
+                item,
+                "category",
+                "security",
+            )
+            severity_value = getattr(getattr(item, "severity", None), "value", None) or getattr(
+                item,
+                "severity",
+                "medium",
+            )
+            title = self._security_title(
+                str(category_value),
+                str(severity_value),
+            )
+            message = str(getattr(item, "message", "")).strip()
+            remediation = str(getattr(item, "remediation", "")).strip()
+            description = " ".join(part for part in [message, remediation] if part).strip()
+            if not description:
+                continue
+            suggestions.append(CodeSuggestion(title=title[:80], description=description[:300]))
+
+        if not suggestions:
+            suggestions.append(
+                CodeSuggestion(
+                    title="Security Hygiene",
+                    description="Run SAST + dependency scans and add validation tests for user-controlled inputs.",
+                )
+            )
+
+        return suggestions[:max_items]
+
     def _build_test_response(
         self,
         *,
@@ -761,6 +809,9 @@ class CodeWorkspaceCodeService:
             CodeAction.TEST: (
                 "You are a senior test engineer. Generate executable unit tests and enumerate edge cases."
             ),
+            CodeAction.SECURITY: (
+                "You are a senior application security engineer. Identify unsafe inputs, secret leaks, and injection risks."
+            ),
         }
         return (
             prompts.get(action, prompts[CodeAction.EXPLAIN])
@@ -884,6 +935,83 @@ class CodeWorkspaceCodeService:
                 learning_mode=True,
                 learning_explanation=learning_explanation,
                 warnings=warnings,
+                cached=False,
+            )
+
+            self._cache_set(cache_key, response)
+            return response
+
+        if request.action == CodeAction.SECURITY:
+            max_suggestions = max(1, min(request.max_suggestions, 10))
+
+            if not code.strip():
+                response = CodeAssistResponse(
+                    updated_code=None,
+                    improved_code=None,
+                    explanation=(
+                        "Security scanner requires source code. Open a file or paste code to analyze "
+                        "unsafe inputs, API leaks, and injection risks."
+                    ),
+                    suggestions=[
+                        CodeSuggestion(
+                            title="Provide Source Code",
+                            description="Add the relevant code snippet and rerun Security Scanner.",
+                        )
+                    ],
+                    context_used=bool(request.include_context and context_sources),
+                    context_sources=context_sources,
+                    action=CodeAction.SECURITY,
+                    language=request.language,
+                    warnings=["No code was provided for scanning."],
+                    security_severity=BugSeverity.NONE,
+                    cached=False,
+                )
+                self._cache_set(cache_key, response)
+                return response
+
+            scan_result = await security_scanner_service.scan(
+                SecurityScanRequest(
+                    code=code,
+                    language=request.language,
+                )
+            )
+
+            finding_count = len(scan_result.findings)
+            if finding_count == 0:
+                explanation = (
+                    "No obvious vulnerabilities were detected by the static scanner. "
+                    "This is not a guarantee of security, so keep validation, auth checks, "
+                    "and dependency scanning in your CI pipeline."
+                )
+            else:
+                explanation = (
+                    f"Security scan found {finding_count} potential issue(s): "
+                    f"{len(scan_result.unsafe_inputs)} unsafe input, "
+                    f"{len(scan_result.api_leaks)} API/secret leak, and "
+                    f"{len(scan_result.injection_risks)} injection risk finding(s). "
+                    f"Highest severity: {scan_result.severity.value}."
+                )
+
+            response = CodeAssistResponse(
+                updated_code=None,
+                improved_code=None,
+                explanation=explanation,
+                security_findings=list(scan_result.findings),
+                unsafe_inputs=list(scan_result.unsafe_inputs),
+                api_leaks=list(scan_result.api_leaks),
+                injection_risks=list(scan_result.injection_risks),
+                security_severity=scan_result.severity,
+                suggestions=self._security_scan_suggestions(
+                    findings=list(scan_result.findings),
+                    max_items=max_suggestions,
+                ),
+                context_used=bool(request.include_context and context_sources),
+                context_sources=context_sources,
+                action=CodeAction.SECURITY,
+                language=request.language,
+                warnings=[
+                    "Static scanning is heuristic-based; validate findings with tests and review before release."
+                ],
                 cached=False,
             )
 

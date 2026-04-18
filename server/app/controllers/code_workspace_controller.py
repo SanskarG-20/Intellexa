@@ -19,6 +19,8 @@ from app.schemas.code import (
     LearningModeResponse,
     ProjectRefactorRequest,
     ProjectRefactorResponse,
+    SecurityScanRequest,
+    SecurityScanResponse,
     TaskModeRequest,
     TaskModeResponse,
 )
@@ -26,6 +28,7 @@ from app.services.code_workspace.bug_prediction_service import bug_prediction_se
 from app.services.code_workspace.code_service import code_workspace_code_service
 from app.services.code_workspace.execution_service import code_execution_service
 from app.services.code_workspace.project_refactor_service import project_refactor_engine_service
+from app.services.code_workspace.security_scanner_service import security_scanner_service
 from app.services.code_workspace.task_mode_service import task_mode_service
 from app.services.memory.agentic_memory_service import agentic_memory_service
 from app.services.memory.user_pattern_service import user_pattern_memory_service
@@ -115,6 +118,17 @@ class CodeWorkspaceController:
             raise HTTPException(
                 status_code=500,
                 detail=f"Bug prediction failed: {str(exc)}",
+            ) from exc
+
+    async def scan_security(self, request: SecurityScanRequest) -> SecurityScanResponse:
+        try:
+            return await security_scanner_service.scan(request)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Security scan failed: {str(exc)}",
             ) from exc
 
     async def learning_mode_explain(

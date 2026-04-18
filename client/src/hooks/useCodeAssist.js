@@ -15,6 +15,7 @@ export const CodeAction = {
   FIX: 'fix',
   REFACTOR: 'refactor',
   TEST: 'test',
+  SECURITY: 'security',
   INTENT: 'intent',
   LEARN: 'learn',
   TASK: 'task',
@@ -178,6 +179,18 @@ export function useCodeAssist() {
   }, [assist]);
 
   /**
+   * Scan code for security vulnerabilities.
+   */
+  const scanSecurity = useCallback(async (code, language, prompt = '') => {
+    return assist({
+      code,
+      language,
+      prompt: prompt || 'Scan this code for unsafe inputs, API leaks, and injection risks',
+      action: CodeAction.SECURITY,
+    });
+  }, [assist]);
+
+  /**
    * Intent-Based Coding: convert user intent into optimized code.
    */
   const intentCode = useCallback(async (intent, code = '', language = 'javascript') => {
@@ -251,6 +264,7 @@ export function useCodeAssist() {
     fix,
     refactor,
     generateTests,
+    scanSecurity,
     intentCode,
     learn,
     whyBroke,
