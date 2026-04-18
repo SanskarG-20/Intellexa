@@ -5059,8 +5059,19 @@ button {
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
+  color-scheme: dark;
   font-family: var(--font-mono);
   font-size: 0.7rem;
+}
+
+.code-assist-action-select option {
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+.code-assist-action-select option:checked {
+  color: #0f172a;
+  background: #dbeafe;
 }
 
 .code-assistant-context-badge {
