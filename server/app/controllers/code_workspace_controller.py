@@ -28,6 +28,7 @@ from app.services.code_workspace.execution_service import code_execution_service
 from app.services.code_workspace.project_refactor_service import project_refactor_engine_service
 from app.services.code_workspace.task_mode_service import task_mode_service
 from app.services.memory.agentic_memory_service import agentic_memory_service
+from app.services.memory.user_pattern_service import user_pattern_memory_service
 
 
 class CodeWorkspaceController:
@@ -46,6 +47,14 @@ class CodeWorkspaceController:
 
         # Persist code-assist interactions into the agentic memory graph.
         try:
+            interaction_metadata = user_pattern_memory_service.build_interaction_metadata(
+                query=request.prompt,
+                code=request.code,
+                language=request.language,
+                action=request.action.value,
+                suggestions=[item.title for item in (response.suggestions or [])],
+            )
+
             memory_content = (
                 f"Code Action: {request.action}\n"
                 f"Language: {request.language}\n"
@@ -60,11 +69,13 @@ class CodeWorkspaceController:
                 source_type="code",
                 source_id=request.language,
                 metadata={
-                    "action": request.action,
+                    "action": request.action.value,
                     "context_used": bool(response.context_used),
                     "context_sources": response.context_sources,
+                    **interaction_metadata,
                 },
             )
+            user_pattern_memory_service.mark_profile_dirty(user_id)
         except Exception:
             # Memory persistence should not break the API response.
             pass
@@ -126,6 +137,14 @@ class CodeWorkspaceController:
 
         # Persist learning-mode requests for longitudinal learning personalization.
         try:
+            interaction_metadata = user_pattern_memory_service.build_interaction_metadata(
+                query=request.prompt,
+                code=request.code,
+                language=request.language,
+                action="learning_mode",
+                suggestions=list(response.learning_explanation.step_by_step[:5]),
+            )
+
             memory_content = (
                 "Code Action: learning_mode\n"
                 f"Language: {request.language}\n"
@@ -144,8 +163,10 @@ class CodeWorkspaceController:
                     "step_count": len(response.learning_explanation.step_by_step),
                     "logic_points": len(response.learning_explanation.logic_breakdown),
                     "context_used": bool(response.context_used),
+                    **interaction_metadata,
                 },
             )
+            user_pattern_memory_service.mark_profile_dirty(user_id)
         except Exception:
             pass
 
@@ -171,6 +192,14 @@ class CodeWorkspaceController:
 
         # Persist summary of project-wide refactor into agentic memory.
         try:
+            interaction_metadata = user_pattern_memory_service.build_interaction_metadata(
+                query=request.instruction,
+                code="",
+                language="project",
+                action="project_refactor",
+                suggestions=[item.path for item in response.updated_files[:5]],
+            )
+
             changed_paths = [item.path for item in response.updated_files[:30]]
             memory_content = (
                 f"Code Action: project_refactor\n"
@@ -189,8 +218,10 @@ class CodeWorkspaceController:
                     "safe_mode": request.safe_mode,
                     "changed_files": response.changed_files,
                     "warnings": response.warnings[:10],
+                    **interaction_metadata,
                 },
             )
+            user_pattern_memory_service.mark_profile_dirty(user_id)
         except Exception:
             # Memory persistence should not block API responses.
             pass
@@ -217,6 +248,14 @@ class CodeWorkspaceController:
 
         # Persist task-mode snapshots for long-running implementation workflows.
         try:
+            interaction_metadata = user_pattern_memory_service.build_interaction_metadata(
+                query=request.prompt,
+                code="",
+                language="task_mode",
+                action="task_mode",
+                suggestions=[item.title for item in response.steps[:5]],
+            )
+
             completed = response.progress.completed_steps
             total = response.progress.total_steps
             active_step_id = response.progress.active_step_id or "none"
@@ -240,8 +279,10 @@ class CodeWorkspaceController:
                     "total_steps": total,
                     "active_step_id": response.progress.active_step_id,
                     "next_step_id": response.progress.next_step_id,
+                    **interaction_metadata,
                 },
             )
+            user_pattern_memory_service.mark_profile_dirty(user_id)
         except Exception:
             pass
 

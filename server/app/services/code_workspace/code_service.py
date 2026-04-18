@@ -28,6 +28,7 @@ from app.schemas.code import (
 from app.services.code_workspace.context_service import code_workspace_context_service
 from app.services.explanation_service import explanation_service
 from app.services.llama_service import llama_service
+from app.services.memory.user_pattern_service import user_pattern_memory_service
 
 
 @dataclass
@@ -435,6 +436,87 @@ class CodeWorkspaceCodeService:
         return suggestions[:max_items]
 
     @staticmethod
+    def _merge_knowledge_with_pattern_guidance(
+        user_knowledge: str,
+        pattern_guidance: str,
+    ) -> str:
+        base = str(user_knowledge or "").strip() or "No relevant user knowledge was found."
+        guidance = str(pattern_guidance or "").strip()
+        if not guidance:
+            return base
+        return f"{base}\n\n{guidance}"
+
+    @staticmethod
+    def _personalize_suggestions(
+        suggestions: List[CodeSuggestion],
+        *,
+        style_preferences: Dict[str, Any],
+        interactions: int,
+        language: str,
+    ) -> List[CodeSuggestion]:
+        if not suggestions:
+            return suggestions
+
+        if interactions < max(1, int(settings.USER_PATTERN_MIN_INTERACTIONS)):
+            return suggestions
+
+        style_hint = user_pattern_memory_service.build_style_hint(style_preferences, language)
+        if not style_hint:
+            return suggestions
+
+        updated: List[CodeSuggestion] = []
+        for index, suggestion in enumerate(suggestions):
+            if index >= 2:
+                updated.append(suggestion)
+                continue
+
+            combined = " ".join([str(suggestion.description or "").strip(), style_hint]).strip()
+            updated.append(
+                suggestion.model_copy(update={"description": combined[:320]})
+            )
+
+        return updated
+
+    @staticmethod
+    def _personalize_autocomplete_suggestions(
+        suggestions: List[CodeAutocompleteItem],
+        *,
+        style_preferences: Dict[str, Any],
+        interactions: int,
+        language: str,
+    ) -> List[CodeAutocompleteItem]:
+        if not suggestions:
+            return suggestions
+
+        if interactions < max(1, int(settings.USER_PATTERN_MIN_INTERACTIONS)):
+            return suggestions
+
+        style_hint = user_pattern_memory_service.build_style_hint(style_preferences, language)
+
+        updated: List[CodeAutocompleteItem] = []
+        for item in suggestions:
+            insert_text = user_pattern_memory_service.apply_style_to_code_snippet(
+                item.insert_text,
+                style_preferences,
+                language,
+            )
+
+            detail = str(item.detail or "AI suggestion").strip() or "AI suggestion"
+            if style_hint:
+                detail = f"{detail} | style-aware"
+
+            updated.append(
+                item.model_copy(
+                    update={
+                        "insert_text": insert_text[:500],
+                        "detail": detail[:160],
+                    }
+                )
+            )
+
+        return updated
+
+    @staticmethod
     def _assist_system_prompt(action: CodeAction, language: str) -> str:
         prompts = {
             CodeAction.EXPLAIN: (
@@ -475,6 +557,25 @@ class CodeWorkspaceCodeService:
         if len(code) > settings.CODE_ASSIST_MAX_CODE_CHARS:
             code = self._clip(code, settings.CODE_ASSIST_MAX_CODE_CHARS)
 
+        adaptation_context: Dict[str, Any] = {
+            "signature": "none",
+            "guidance": "",
+            "style_preferences": {},
+            "interactions": 0,
+        }
+        try:
+            adaptation_context = await user_pattern_memory_service.get_adaptation_context(
+                user_id=user_id,
+                language=request.language,
+            )
+        except Exception:
+            adaptation_context = {
+                "signature": "none",
+                "guidance": "",
+                "style_preferences": {},
+                "interactions": 0,
+            }
+
         cache_key = self._cache_key(
             "assist",
             {
@@ -486,6 +587,7 @@ class CodeWorkspaceCodeService:
                 "context": request.include_context,
                 "extra_context": request.context or "",
                 "learning_mode": bool(request.learning_mode),
+                "pattern_signature": adaptation_context.get("signature") or "none",
             },
         )
         cached = self._cache_get(cache_key)
@@ -504,6 +606,11 @@ class CodeWorkspaceCodeService:
             )
         elif request.context:
             user_knowledge = self._clip(request.context, 1200)
+
+        user_knowledge = self._merge_knowledge_with_pattern_guidance(
+            user_knowledge,
+            str(adaptation_context.get("guidance") or ""),
+        )
 
         if request.learning_mode:
             learning_payload = await explanation_service.generate_learning_mode_explanation(
@@ -529,14 +636,22 @@ class CodeWorkspaceCodeService:
                 "Learning Mode produced a deep explanation with step-by-step and logic breakdown outputs."
             )
 
+            learning_suggestions = self._extract_learning_suggestions(
+                learning_explanation,
+                max_items=max(1, min(request.max_suggestions, 10)),
+            )
+            learning_suggestions = self._personalize_suggestions(
+                learning_suggestions,
+                style_preferences=adaptation_context.get("style_preferences") or {},
+                interactions=int(adaptation_context.get("interactions") or 0),
+                language=request.language,
+            )
+
             response = CodeAssistResponse(
                 updated_code=None,
                 improved_code=None,
                 explanation=explanation_text,
-                suggestions=self._extract_learning_suggestions(
-                    learning_explanation,
-                    max_items=max(1, min(request.max_suggestions, 10)),
-                ),
+                suggestions=learning_suggestions,
                 context_used=bool(request.include_context and context_sources),
                 context_sources=context_sources,
                 action=request.action,
@@ -575,6 +690,17 @@ class CodeWorkspaceCodeService:
                 max_suggestions=max(1, min(request.max_suggestions, 10)),
             )
 
+            response = response.model_copy(
+                update={
+                    "suggestions": self._personalize_suggestions(
+                        list(response.suggestions),
+                        style_preferences=adaptation_context.get("style_preferences") or {},
+                        interactions=int(adaptation_context.get("interactions") or 0),
+                        language=request.language,
+                    )
+                }
+            )
+
             self._cache_set(cache_key, response)
             return response
 
@@ -596,6 +722,12 @@ class CodeWorkspaceCodeService:
         suggestions = self._extract_suggestions(
             explanation,
             max_items=max(1, min(request.max_suggestions, 10)),
+        )
+        suggestions = self._personalize_suggestions(
+            suggestions,
+            style_preferences=adaptation_context.get("style_preferences") or {},
+            interactions=int(adaptation_context.get("interactions") or 0),
+            language=request.language,
         )
 
         response = CodeAssistResponse(
@@ -698,6 +830,25 @@ class CodeWorkspaceCodeService:
         if len(safe_code) > settings.CODE_ASSIST_MAX_CODE_CHARS:
             safe_code = self._clip(safe_code, settings.CODE_ASSIST_MAX_CODE_CHARS)
 
+        adaptation_context: Dict[str, Any] = {
+            "signature": "none",
+            "guidance": "",
+            "style_preferences": {},
+            "interactions": 0,
+        }
+        try:
+            adaptation_context = await user_pattern_memory_service.get_adaptation_context(
+                user_id=user_id,
+                language=request.language,
+            )
+        except Exception:
+            adaptation_context = {
+                "signature": "none",
+                "guidance": "",
+                "style_preferences": {},
+                "interactions": 0,
+            }
+
         cursor_descriptor = f"line {request.cursor_line}, column {request.cursor_column}"
 
         cache_key = self._cache_key(
@@ -708,6 +859,7 @@ class CodeWorkspaceCodeService:
                 "code": sha256(safe_code.encode("utf-8")).hexdigest(),
                 "cursor": cursor_descriptor,
                 "max": request.max_suggestions,
+                "pattern_signature": adaptation_context.get("signature") or "none",
             },
         )
         cached = self._cache_get(cache_key)
@@ -720,6 +872,10 @@ class CodeWorkspaceCodeService:
             code=safe_code,
             explicit_context=request.context,
             top_k=3,
+        )
+        user_knowledge = self._merge_knowledge_with_pattern_guidance(
+            user_knowledge,
+            str(adaptation_context.get("guidance") or ""),
         )
 
         prompt = self.context_service.build_prompt(
@@ -743,6 +899,12 @@ class CodeWorkspaceCodeService:
         suggestions = self._parse_autocomplete_json(raw, request.max_suggestions)
         if not suggestions:
             suggestions = self._fallback_autocomplete(request.language, request.max_suggestions)
+        suggestions = self._personalize_autocomplete_suggestions(
+            suggestions,
+            style_preferences=adaptation_context.get("style_preferences") or {},
+            interactions=int(adaptation_context.get("interactions") or 0),
+            language=request.language,
+        )
 
         response = CodeAutocompleteResponse(
             suggestions=suggestions,
