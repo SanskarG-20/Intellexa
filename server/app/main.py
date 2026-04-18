@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from app.api.v1.chat import router as chat_router
 from app.api.v1.memory import router as memory_router
 from app.api.v1.code import router as code_router
+from app.api.v1.project_context import router as project_context_router
 from app.routes.code_workspace_routes import router as code_workspace_router
 from app.core.config import settings
 from app.services.memory.embedding_service import validate_embedding_service
@@ -68,6 +69,7 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(memory_router)
 app.include_router(code_router)
+app.include_router(project_context_router)
 app.include_router(code_workspace_router)
 
 @app.get("/")

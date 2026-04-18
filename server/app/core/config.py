@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     CODE_EXECUTION_CPU_LIMIT: str = "0.5"
     CODE_EXECUTION_MEMORY_LIMIT_MB: int = 256
 
+    # Project Context Engine Settings
+    PROJECT_CONTEXT_MAX_FILES: int = 4000
+    PROJECT_CONTEXT_MAX_FILE_SIZE_KB: int = 256
+    PROJECT_CONTEXT_BATCH_SIZE: int = 40
+    PROJECT_CONTEXT_CACHE_TTL_SECONDS: int = 180
+    PROJECT_CONTEXT_INCLUDE_EMBEDDINGS_BY_DEFAULT: bool = False
+
     # Global User ID (Mock)
     MOCK_USER_ID: str = "demo_user"
 
