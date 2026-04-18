@@ -20,10 +20,13 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Intellexa Core...")
     
     # Validate embedding service
-    try:
-        await validate_embedding_service()
-    except Exception as e:
-        logger.warning(f"Embedding service validation failed: {e}")
+    if settings.EMBEDDING_VALIDATE_ON_STARTUP:
+        try:
+            await validate_embedding_service()
+        except Exception as e:
+            logger.warning(f"Embedding service validation failed: {e}")
+    else:
+        logger.info("Embedding startup validation skipped by configuration.")
     
     logger.info("Intellexa Core ready!")
     

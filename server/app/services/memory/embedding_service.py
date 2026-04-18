@@ -9,6 +9,7 @@ Model: nomic-ai/nomic-embed-text-v1.5 (768 dims, 8192 token context)
 import asyncio
 import hashlib
 import logging
+import os
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -193,11 +194,27 @@ class EmbeddingService:
         self._dimension = EMBEDDING_DIMENSION
         self._use_fallback = False
         self._validated = False
-        
-        self._initialize()
+        self._initialized = False
     
     def _initialize(self) -> None:
         """Initialize the embedding model."""
+        if self._initialized:
+            return
+
+        force_fallback = bool(settings.EMBEDDING_FORCE_HASH_FALLBACK)
+        is_railway = bool(
+            os.getenv("RAILWAY_ENVIRONMENT")
+            or os.getenv("RAILWAY_SERVICE_ID")
+            or os.getenv("RAILWAY_PROJECT_ID")
+        )
+
+        if force_fallback or is_railway:
+            reason = "configuration" if force_fallback else "Railway runtime detection"
+            print(f"[EmbeddingService] [INFO] Using hash fallback embeddings ({reason}).")
+            self._use_fallback = True
+            self._initialized = True
+            return
+
         print("[EmbeddingService] Initializing local embedding service...")
         logger.info("[EmbeddingService] Initializing local embedding service...")
         
@@ -208,6 +225,7 @@ class EmbeddingService:
             self._model_name = PRIMARY_MODEL
             self._dimension = model.dimension
             print(f"[EmbeddingService] [OK] Using: {PRIMARY_MODEL}")
+            self._initialized = True
             return
         
         # Try fallback models
@@ -219,14 +237,19 @@ class EmbeddingService:
                 self._model_name = model_name
                 self._dimension = model.dimension
                 print(f"[EmbeddingService] [OK] Using fallback: {model_name}")
+                self._initialized = True
                 return
         
         # All models failed
         print("[EmbeddingService] [WARN] All models failed, using hash-based fallback")
         self._use_fallback = True
+        self._initialized = True
     
     def _ensure_ready(self) -> None:
         """Ensure the service is ready to generate embeddings."""
+        if not self._initialized:
+            self._initialize()
+
         if self._use_fallback:
             return
         if self._model is None or not self._model.is_loaded:
@@ -379,7 +402,7 @@ class EmbeddingService:
     
     def is_initialized(self) -> bool:
         """Check if service is initialized."""
-        return True
+        return self._initialized
     
     def is_using_fallback(self) -> bool:
         """Check if using hash-based fallback."""

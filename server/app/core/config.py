@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = 768  # Gemini embedding dimension
     CHUNK_MAX_TOKENS: int = 500
     CHUNK_OVERLAP_TOKENS: int = 50
+    EMBEDDING_VALIDATE_ON_STARTUP: bool = False
+    EMBEDDING_FORCE_HASH_FALLBACK: bool = False
 
     # Search API Settings (optional — enables SerpAPI over DuckDuckGo fallback)
     SERPAPI_API_KEY: str = ""
