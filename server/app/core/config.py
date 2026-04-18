@@ -52,6 +52,22 @@ class Settings(BaseSettings):
     # Search API Settings (optional — enables SerpAPI over DuckDuckGo fallback)
     SERPAPI_API_KEY: str = ""
 
+    # Code Workspace Settings
+    CODE_ASSIST_MAX_PROMPT_CHARS: int = 4000
+    CODE_ASSIST_MAX_CODE_CHARS: int = 120000
+    CODE_ASSIST_CACHE_TTL_SECONDS: int = 120
+    CODE_ASSIST_CACHE_MAX_ITEMS: int = 500
+
+    # Sandboxed Code Execution Settings
+    CODE_EXECUTION_ENABLED: bool = True
+    CODE_EXECUTION_USE_DOCKER: bool = False
+    CODE_EXECUTION_DOCKER_IMAGE: str = "python:3.11-alpine"
+    CODE_EXECUTION_TIMEOUT_MS: int = 3000
+    CODE_EXECUTION_MAX_OUTPUT_CHARS: int = 8000
+    CODE_EXECUTION_MAX_CODE_CHARS: int = 20000
+    CODE_EXECUTION_CPU_LIMIT: str = "0.5"
+    CODE_EXECUTION_MEMORY_LIMIT_MB: int = 256
+
     # Global User ID (Mock)
     MOCK_USER_ID: str = "demo_user"
 
@@ -95,6 +111,8 @@ class Settings(BaseSettings):
         defaults = [
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
             "http://localhost:4173",
             "http://127.0.0.1:4173",
         ]
