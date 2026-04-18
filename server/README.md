@@ -20,6 +20,11 @@ Production-quality backend for Intellexa Core Chatbot using FastAPI, Google Gemi
     pip install -r requirements.txt
     ```
 
+    Optional (local/full multimedia + local embeddings):
+    ```bash
+    pip install -r requirements-optional-ml.txt
+    ```
+
 4.  **Environment Variables**
     - Copy `.env.example` to `.env`.
     - Fill in your `GEMINI_API_KEY`, `SUPABASE_URL`, and `SUPABASE_KEY`.
@@ -99,6 +104,9 @@ CORS_ALLOW_ORIGINS=https://your-frontend.vercel.app
 Notes:
 - `PORT` is provided automatically by Railway and used by the app.
 - Keep `DEBUG=false` in production.
+- Recommended for Railway stability:
+    - `EMBEDDING_VALIDATE_ON_STARTUP=false`
+    - `EMBEDDING_FORCE_HASH_FALLBACK=true`
 
 ### 3) Deploy
 - Railway will build and start the service automatically.

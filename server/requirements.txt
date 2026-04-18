@@ -6,15 +6,8 @@ pydantic
 pydantic-settings
 python-dotenv
 
-# Multimodal Context Memory System
-PyMuPDF==1.24.0
+# Runtime-safe multimodal dependencies
 Pillow==10.3.0
-faster-whisper==1.0.1
 google-genai>=1.0.0
 google-generativeai>=0.5.0
 python-multipart==0.0.9
-
-# Local Embeddings (CPU-optimized, no API needed)
-sentence-transformers>=2.2.0
-torch
-einops
