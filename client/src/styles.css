@@ -3,8 +3,6 @@
    Aesthetic: Dark HUD / Mission Control / Monospace Precision
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
-
 /* ── DESIGN TOKENS ────────────────────────────────────────── */
 :root {
   --bg: #0C0C15;
@@ -97,6 +95,19 @@ button {
 .page-content {
   position: relative;
   z-index: 1;
+}
+
+.landing-page {
+  opacity: 0;
+  transition: opacity 320ms ease-out;
+}
+
+.landing-page.landing-ready {
+  opacity: 1;
+}
+
+.landing-page.landing-pending {
+  pointer-events: none;
 }
 
 /* ── HUD CARD MIXIN (corner brackets) ─────────────────────── */
@@ -574,12 +585,15 @@ button {
   height: 85vh;
   max-height: 800px;
   overflow: hidden;
+  contain: layout paint;
+  isolation: isolate;
 }
 
 .spline-wrapper {
   width: 100%;
   height: 100%;
   position: relative;
+  contain: layout paint;
 }
 
 .spline-wrapper::before {
@@ -616,6 +630,9 @@ button {
   justify-content: center;
   z-index: 1;
   transition: opacity 1s ease;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: opacity;
 }
 
 .spline-skeleton span {
@@ -636,10 +653,17 @@ button {
   height: 100%;
   opacity: 0;
   transition: opacity 1s ease;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: opacity;
 }
 
 .spline-container.is-visible {
   opacity: 1;
+}
+
+.spline-container canvas {
+  display: block;
 }
 
 .spline-lite-fallback {
@@ -3343,6 +3367,13 @@ button {
 .lite-mode .glow-blob {
   filter: blur(56px);
   opacity: 0.82;
+}
+
+.lite-mode .navbar-scrolled,
+.lite-mode .mobile-nav {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(12,12,21,0.94);
 }
 
 /* ── SCROLL FADE-UP UTILITY ───────────────────────────────── */
