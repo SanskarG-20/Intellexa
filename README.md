@@ -1,76 +1,82 @@
 # Intellexa
 
+## 1. Hero Section
+
 Trust-aware, explainable AI for real-world decision support.
 
-Intellexa doesn’t just answer questions — it questions the question itself.
+Intellexa is a full-stack AI product that reasons before it responds. It combines agentic retrieval, cognitive challenge, ethical safeguards, and transparent explanation in one unified system.
 
-## Key Idea
-Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluates user intent before answering, detects bias and assumptions, can reframe problematic prompts, decides when external search is needed, and returns answers with transparent reasoning, ethical safeguards, and trust signals.
+Built with a production-style architecture, Intellexa includes authenticated chat, source-grounded responses, voice mode, and a collaborative AI coding workspace with non-destructive apply flows.
 
-## Why Intellexa Is Different
-- Agentic AI workflow: the model decides when to call search tools, instead of relying on keyword-triggered retrieval.
-- Cognitive challenge layer: Perspective Autopsy and Clarification Questions actively challenge ambiguous or biased framing.
-- Query Reframing layer: biased or vague prompts can be rewritten into neutral, evidence-seeking queries before generation.
-- Ethical + explainable by default: responses include risk-aware handling, trust metrics, and a clear Why this answer explanation.
+**Intellexa doesn’t just answer questions — it questions the question itself.**
 
-## Features
-### Identity and User Context
-- Clerk authentication for secure signup/login and protected routes.
-- User-scoped session experience in the frontend.
-- Supabase-backed chat history with a ChatGPT-like sidebar.
+---
 
-### Agentic Intelligence and Retrieval
-- Full chat interface built with React + Vite.
-- Agentic RAG flow where LLaMA can decide when web search is needed.
-- Integrated web search for real-time information retrieval.
-- Query Enhancement Layer that reformulates weak search prompts into stronger intent-aware queries.
-- Multi-attempt retrieval path for difficult prompts (base query, enhanced query, broad query).
-- Domain-aware ranking so sports, politics, and tech queries prioritize relevant sources.
-- Source and citation display in responses.
+## 2. 🚀 What is Intellexa?
+
+Intellexa is an AI assistant designed for higher-stakes questions where trust and reasoning matter.
+
+Instead of only generating text, it first inspects the query for assumptions, ambiguity, and bias. It can then reframe weak prompts, decide when live search is needed, and return answers with sources, confidence, and explanation.
+
+The result is a system that feels less like a generic chatbot and more like a reasoning partner.
+
+---
+
+## 3. 🧠 Core Differentiators
+
+- **Agentic AI decisioning**: The system decides when retrieval is necessary instead of blindly searching every time.
+- **Cognitive challenge layer**: Perspective Autopsy and Clarification Questions challenge vague or biased framing before final generation.
+- **Ethical + explainable by default**: Responses include trust signals, confidence labels, and a Why this answer layer.
+- **Query reframing engine**: Prompts can be transformed into clearer, neutral, evidence-seeking versions before answer synthesis.
+
+---
+
+## 4. ✨ Key Features (Grouped)
+
+### Intelligence and Retrieval
+- Agentic RAG flow with conditional web retrieval.
+- Query enhancement for weak prompts, plus multi-attempt retrieval fallback.
+- Domain-aware relevance filtering for better source quality.
+- Source and citation display in final responses.
 
 ### Cognitive and Ethical Reasoning
-- Perspective Autopsy Engine to detect assumptions, bias, and missing angles.
-- Query Reframing (Wow Mode) to conditionally rewrite biased or vague questions.
-- Multi-perspective responses across:
-  - Utilitarian
-  - Rights-based
-  - Care ethics
-- Ethical AI layer with bias detection, risk categorization, and safe response handling.
-- Clarification Question Engine that asks follow-up questions only when needed.
+- Perspective Autopsy to detect assumptions, bias, and missing angles.
+- Query Reframing (Wow Mode) for neutral and evidence-oriented prompts.
+- Clarification Question Engine for ambiguous or sensitive queries.
+- Multi-perspective reasoning output across utilitarian, rights-based, and care ethics lenses.
 
 ### Trust and Explainability
 - Trust score output on a 0 to 100 scale.
-- Confidence level labels for answer reliability.
-- Explanation Engine with Why this answer transparency.
+- Confidence labels for response reliability.
+- Why this answer explanation layer.
 
-### Product UX
-- ChatGPT-like dashboard layout.
-- Sidebar history, smooth scrolling, loading states, and typing effects.
-- Reframed Question banner shown above responses when reframing is triggered.
-- Stop button to interrupt in-flight generation and typing animation.
-- Dedicated analysis and source-aware output views.
-- Voice Conversation Mode with continuous listening and natural 5-second silence detection.
-- Voice-mode realtime guardrail: for realtime queries, web search is forced and answers are source-grounded.
-- Dual-response behavior in voice mode: short spoken reply, full answer plus sources/explanation stored in history.
-- Clean voice output policy: voice speaks concise final answers only (no URLs, source lists, or system/debug text).
+### Voice and UX
+- Clerk-authenticated, user-scoped dashboard experience.
+- Supabase-backed conversation history with sidebar flow.
+- Voice Conversation Mode with continuous listening and silence-aware turns.
+- Voice-mode realtime guardrails: realtime voice queries force source-grounded retrieval.
+- Dual-answer contract: concise short answer for speech, full answer with sources for chat/history.
 
-### Real-Time Collaborative Code Workspace
-- Monaco-based multi-user editor with Yjs CRDT synchronization and Socket.IO transport.
-- Realtime collaboration supports presence, awareness, and shared room state per file workspace.
-- AI assistance is integrated as a non-destructive layer: suggestions are proposed first, then manually applied.
-- AI suggestions are shared across collaborators as collaboration events so everyone can review before apply.
-- Apply flow uses patch-based Yjs transactions instead of full document replacement to reduce sync breakage.
-- Security scanning, test generation, intent coding, refactor, and explanation actions are available inside the same panel.
+### Collaborative Coding Workspace
+- Monaco multi-user editor with Yjs CRDT sync over Socket.IO.
+- Presence and awareness synchronization across shared rooms.
+- Non-destructive AI coding assist: suggest first, apply manually.
+- Shared AI suggestion events for team-wide review before apply.
+- Patch-based Yjs apply flow using diff-match-patch to avoid full-document overwrites.
+- Built-in code actions: explain, generate, test generation, security scan, fix, refactor, intent coding, task builder, and why broke analysis.
 
-## System Architecture
-Intellexa uses a staged architecture that combines agentic decisioning with retrieval-aware reasoning.
+---
 
-```mermaid
+## 5. 🏗️ System Architecture
+
+Intellexa follows a staged reasoning pipeline: understand intent, decide on retrieval, synthesize ethically, and return transparent outputs.
+
+~~~mermaid
 flowchart LR
     U[User Query] --> A[Clerk Auth + Protected Route]
     A --> B[Perspective Autopsy]
-  B --> R[Conditional Query Reframing]
-  R --> C{Need Clarification?}
+    B --> R[Conditional Query Reframing]
+    R --> C{Need Clarification?}
     C -->|Yes| D[Clarification Question]
     C -->|No| E[LLaMA Draft Answer]
     D --> E
@@ -83,10 +89,11 @@ flowchart LR
     J --> K[Explanation + Trust Scoring]
     K --> L[Response + Sources + Metadata]
     L --> M[Supabase Conversation History]
-```
+~~~
 
-### Collaborative AI Editing Architecture
-```mermaid
+Collaborative coding is handled as a realtime, non-destructive layer on top of shared documents.
+
+~~~mermaid
 flowchart LR
   U1[User A / User B] --> E[Monaco Editor]
   E --> Y[Yjs Doc + Awareness]
@@ -104,33 +111,40 @@ flowchart LR
   U1 --> AP[Apply Changes]
   AP --> D[diff-match-patch + Yjs transaction]
   D --> Y
-```
+~~~
 
-## How It Works
-1. User logs in via Clerk and sends a prompt from the dashboard.
-2. Intellexa runs Perspective Autopsy to inspect assumptions, framing, and potential bias.
-3. If needed, Intellexa reframes the query into a clearer, neutral, evidence-oriented version.
-4. If the query is ambiguous or sensitive, Clarification Question logic can request a follow-up.
-5. LLaMA generates a primary answer draft.
-6. The system decides agentically whether web search is required.
-7. If needed, live web results are retrieved and fused as context.
-8. Intellexa generates multi-perspective output and applies the ethical safety layer.
-9. Explanation and trust metrics are computed.
-10. Final response is returned with sources; when reframing is used, UI shows Reframed Question above the answer.
-11. Conversation history is stored in Supabase.
+---
 
-### How Collaborative AI Assist Works
-1. User selects code (or entire file) and clicks Ask AI.
-2. Frontend sends `POST /code-assist` with code, prompt, and compact context fields.
-3. Backend returns a non-destructive assist payload with `suggestion`, `diff`, and `explanation`.
-4. The suggestion is visible in the AI panel and can be broadcast to collaborators as `ai_suggestion` context.
-5. When Apply Changes is clicked, patch hunks are merged into the active Yjs document via transaction.
-6. Changes propagate through realtime sync without full overwrite.
-7. If code changed while suggestion was pending, fuzzy patch merge attempts partial safe apply and logs warnings.
+## 6. ⚙️ How It Works
 
-### Code Assist API Contract (Collaborative)
-Request (`POST /code-assist`):
-```json
+1. User signs in via Clerk and submits a query.
+2. Intellexa runs Perspective Autopsy to inspect assumptions and framing.
+3. If needed, query reframing produces a clearer, neutral version.
+4. Clarification logic asks follow-up questions only when uncertainty is high.
+5. LLaMA drafts the response.
+6. Agentic routing decides whether live web retrieval is required.
+7. Retrieved context is filtered and fused into final reasoning.
+8. Multi-perspective and ethical layers refine the answer.
+9. Trust score, confidence, and explanation metadata are generated.
+10. Final response is returned with sources and stored in Supabase history.
+
+---
+
+## 7. 💻 Collaborative AI Coding
+
+Intellexa includes a collaborative code workspace where AI assistance is safe by design: suggestions never overwrite shared code automatically.
+
+### Flow
+1. A collaborator selects code (or full file) and submits Ask AI.
+2. Frontend sends code plus compact context fields: project context, user memory, selected code, related files.
+3. Backend returns a non-destructive payload with suggestion, unified diff, diff hunks, and explanation.
+4. Suggestion metadata can be shared with all collaborators as realtime events.
+5. Apply Changes triggers patch merge into the Yjs document via transaction.
+6. If the file changed in the meantime, fuzzy patching attempts partial safe merge and reports conflicts.
+
+### API Contract (Code Assist)
+Request:
+~~~json
 {
   "code": "...",
   "prompt": "...",
@@ -141,10 +155,10 @@ Request (`POST /code-assist`):
     { "path": "src/utils/helpers.ts", "language": "typescript", "content": "..." }
   ]
 }
-```
+~~~
 
-Response (non-destructive):
-```json
+Response:
+~~~json
 {
   "suggestion": "updated full-file suggestion",
   "diff": "unified diff text",
@@ -158,53 +172,56 @@ Response (non-destructive):
   ],
   "explanation": "what changed and why"
 }
-```
+~~~
 
-### Stability and Performance Notes (Workspace)
-- Debounced assist and autocomplete requests to reduce noisy realtime traffic.
-- Context payload is clipped and limited (selected code + a few related files), not full project dumps each request.
-- Code size and payload fields are bounded in backend schema validation.
-- Manual apply gate prevents unsolicited AI edits in shared documents.
-- Patch-based apply preserves cursor/awareness behavior better than replace-all writes.
+### Stability Notes
+- Debounced assist/autocomplete to reduce noisy realtime traffic.
+- Context payload clipping to avoid full-project dumps.
+- Schema-level bounds for code and request payload size.
+- Manual apply gate to prevent unsolicited AI edits.
+- Patch transactions preserve awareness/cursor behavior better than replace-all writes.
 
-### Voice Mode Realtime Flow
-1. User speaks and Intellexa waits for a natural pause before submitting.
-2. In voice mode, realtime-intent queries are marked with `voice_mode=true`.
-3. Backend enforces web search for realtime voice queries and injects latest verified context.
-4. Assistant speaks a concise 1 to 2 sentence reply for low-latency voice UX.
-5. Full detailed response (including explanation and sources) is still persisted in chat history.
-6. If the user speaks while Intellexa is searching or speaking, the current process is canceled and listening resumes.
+---
 
-### Voice + Real-Time Intelligence
-- Backend response contract supports:
-  - `full_answer`: detailed response for chat UI and history
-  - `short_answer`: concise conversational response for voice playback
-  - `sources`: query-specific citations used for grounding
-- Voice mode uses `short_answer` only, while chat mode displays `full_answer` with sources.
-- Search fallback messaging is user-friendly and avoids noisy system phrasing.
-- Query-specific source isolation prevents source leakage between unrelated prompts.
+## 8. 🎤 Voice + Real-Time Intelligence
 
-## Tech Stack
-- Frontend: React, Vite, Clerk, Axios
-- Backend: FastAPI, Uvicorn, Pydantic
-- AI Layer: LLaMA via Hugging Face Router, Gemini for reasoning/autopsy/ethics support
-- Data Layer: Supabase (conversation storage)
-- Optional Retrieval Enhancement: SerpAPI key path with fallback web retrieval strategy
+Intellexa voice mode is optimized for realtime usability without sacrificing traceability.
 
-## Installation
+- Continuous listening with silence-aware turn capture.
+- Voice requests are flagged through voice_mode metadata.
+- Realtime voice queries enforce web-grounded retrieval when needed.
+- Speech output uses concise short answers for low-latency interaction.
+- Full detailed answers with sources and explanation are still persisted in chat history.
+- If the user speaks while response/search is active, the current cycle is interrupted and listening resumes.
+
+---
+
+## 9. 🧪 Tech Stack
+
+- **Frontend**: React, Vite, Axios, Clerk
+- **Backend**: FastAPI, Uvicorn, Pydantic
+- **AI Layer**: LLaMA via Hugging Face Router, Gemini for autopsy/ethics/explainability
+- **Data Layer**: Supabase (chat history)
+- **Collaboration**: Monaco Editor, Yjs, Socket.IO, diff-match-patch
+- **Retrieval**: Web search pipeline with optional SerpAPI path
+
+---
+
+## 10. 🚀 Getting Started
+
 ### Prerequisites
 - Node.js 18+
 - Python 3.10+
 - npm and pip
 
-### 1) Clone and open project
-```bash
+### 1) Clone repository
+~~~bash
 git clone https://github.com/SanskarG-20/Intellexa.git
 cd Intellexa
-```
+~~~
 
-### 2) Backend setup (FastAPI)
-```bash
+### 2) Start backend
+~~~bash
 cd server
 python -m venv .venv
 
@@ -216,41 +233,41 @@ python -m venv .venv
 
 pip install -r requirements.txt
 python -m app.main
-```
+~~~
 
-Backend starts on http://localhost:8000 and exposes chat at /api/v1/chat.
+Backend default: http://localhost:8000
 
-### 3) Frontend setup (React + Vite)
-```bash
+### 3) Start frontend
+~~~bash
 cd client
 npm install
 npm run dev
-```
+~~~
 
-Frontend runs on http://localhost:5173 by default.
+Frontend default: http://localhost:5173
 
-## Environment Variables
-Create env files in client and server roots.
+---
 
-### Frontend: client/.env
-```env
+## 11. 🔐 Environment Variables
+
+Create environment files in client and server directories.
+
+### client/.env
+~~~env
 VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
 VITE_API_BASE_URL=http://localhost:8000/api
-# Production example (Vercel -> Railway):
-# VITE_API_BASE_URL=https://your-service.up.railway.app/api
 VITE_CLERK_TOKEN_TEMPLATE=
 VITE_SUPABASE_URL=your_supabase_project_url
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
+~~~
 
-### Backend: server/.env
-```env
+### server/.env
+~~~env
 APP_NAME=Intellexa Core Chat
 DEBUG=true
 
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.5-flash
-# Testing only: force query reframing for every prompt
 FORCE_REFRAME_DEBUG=false
 
 HF_TOKEN=your_huggingface_token
@@ -261,45 +278,53 @@ SUPABASE_KEY=your_supabase_service_key
 
 SERPAPI_API_KEY=optional_serpapi_key
 MOCK_USER_ID=demo_user
-```
+~~~
 
-## Deployment Notes (Vercel + Railway)
-- Set Vercel env `VITE_API_BASE_URL` to your Railway backend base URL with `/api` suffix.
-- Ensure Railway route `POST /api/v1/chat` is reachable.
-- Add your Vercel domain in Railway `CORS_ALLOW_ORIGINS`.
-- Redeploy both services after env changes.
-- Frontend transport now retries across safe API base candidates (configured env URL, same-origin `/api`, and known production fallback) when network routing fails.
+---
 
-## Folder Structure
-```text
+## 12. 📁 Folder Structure
+
+~~~text
 Intellexa/
 |- client/
 |  |- src/
 |  |  |- components/
 |  |  |- pages/
 |  |  |- services/
-|  |  |- AppRoutes.jsx
-|  |  |- main.jsx
 |  |- package.json
 |- server/
 |  |- app/
 |  |  |- api/
-|  |  |- core/
-|  |  |- db/
 |  |  |- schemas/
 |  |  |- services/
 |  |  |- main.py
 |  |- requirements.txt
 |- README.md
 |- vercel.json
-```
+~~~
 
-## Demo
-- Live Demo: https://intellexa-lac.vercel.app/
+---
 
-## Future Improvements
-- Full Clerk user ID propagation into backend persistence path.
-- Streaming token responses for lower perceived latency.
-- Automated evaluation suite for bias, factuality, and citation quality.
-- Multi-tenant model routing and cost-aware fallback policy.
+## 13. 🌍 Deployment
+
+- Frontend deployed on Vercel, backend on Railway.
+- Set VITE_API_BASE_URL to Railway backend URL with /api suffix.
+- Ensure POST /api/v1/chat is reachable from frontend origin.
+- Add frontend domain to backend CORS allow-list.
+- Redeploy both services after environment updates.
+
+---
+
+## 14. 🎥 Demo
+
+Live demo: https://intellexa-lac.vercel.app/
+
+---
+
+## 15. 🔮 Future Improvements
+
+- Full Clerk user ID propagation across all backend persistence paths.
+- Token streaming for lower perceived latency.
+- Automated evaluation for bias, factuality, and citation quality.
+- Cost-aware model routing and resilient fallback orchestration.
 - Human review workflows for high-risk prompts.
