@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, Header
 from app.controllers.code_workspace_controller import code_workspace_controller
 from app.core.config import settings
 from app.schemas.code import (
+    BugPredictionRequest,
+    BugPredictionResponse,
     CodeAssistRequest,
     CodeAssistResponse,
     CodeAutocompleteRequest,
@@ -73,6 +75,18 @@ async def post_code_autocomplete(
 async def post_code_execute(request: CodeExecutionRequest):
     """Sandboxed execution endpoint."""
     return await code_workspace_controller.execute(request)
+
+
+@router.post("/bug-predict", response_model=BugPredictionResponse)
+async def post_bug_predict(request: BugPredictionRequest):
+    """Canonical endpoint for static bug prediction before execution."""
+    return await code_workspace_controller.predict_bugs(request)
+
+
+@router.post("/api/v1/code/bug-predict", response_model=BugPredictionResponse)
+async def post_bug_predict_versioned(request: BugPredictionRequest):
+    """Versioned alias for static bug prediction."""
+    return await code_workspace_controller.predict_bugs(request)
 
 
 @router.post("/learning-mode", response_model=LearningModeResponse)

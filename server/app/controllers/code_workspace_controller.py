@@ -7,6 +7,8 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from app.schemas.code import (
+    BugPredictionRequest,
+    BugPredictionResponse,
     CodeAssistRequest,
     CodeAssistResponse,
     CodeAutocompleteRequest,
@@ -18,6 +20,7 @@ from app.schemas.code import (
     ProjectRefactorRequest,
     ProjectRefactorResponse,
 )
+from app.services.code_workspace.bug_prediction_service import bug_prediction_service
 from app.services.code_workspace.code_service import code_workspace_code_service
 from app.services.code_workspace.execution_service import code_execution_service
 from app.services.code_workspace.project_refactor_service import project_refactor_engine_service
@@ -87,6 +90,17 @@ class CodeWorkspaceController:
             raise HTTPException(
                 status_code=500,
                 detail=f"Execution failed: {str(exc)}",
+            ) from exc
+
+    async def predict_bugs(self, request: BugPredictionRequest) -> BugPredictionResponse:
+        try:
+            return await bug_prediction_service.predict(request)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Bug prediction failed: {str(exc)}",
             ) from exc
 
     async def learning_mode_explain(

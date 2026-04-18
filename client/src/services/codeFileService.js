@@ -215,6 +215,17 @@ export async function codeAssist(request) {
 }
 
 /**
+ * Predict potential bugs before execution.
+ */
+export async function bugPredict(request) {
+  return requestWithFallback('post', `${CODE_API_PREFIX}/bug-predict`, {
+    code: request.code || '',
+    language: request.language || 'javascript',
+    filename: request.filename,
+  });
+}
+
+/**
  * Request Learning Mode deep explanation for a code snippet.
  */
 export async function learningModeExplain(request) {
@@ -320,6 +331,7 @@ export default {
   importCodeFiles,
   getFileTree,
   codeAssist,
+  bugPredict,
   learningModeExplain,
   codeAutocomplete,
   executeCode,

@@ -32,6 +32,16 @@ class CodeAction(str, Enum):
     REFACTOR = "refactor"
 
 
+class BugSeverity(str, Enum):
+    """Severity levels for bug prediction warnings."""
+
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 # ============================================================================
 # File Schemas
 # ============================================================================
@@ -199,6 +209,36 @@ class LearningModeResponse(BaseModel):
     context_sources: List[str] = Field(default_factory=list)
     language: str
     cached: bool = False
+
+
+class BugPredictionWarning(BaseModel):
+    """One static-analysis warning produced by bug prediction engine."""
+
+    category: str = Field(..., description="null-issue | async-problem | edge-case")
+    message: str
+    severity: BugSeverity
+    line: Optional[int] = None
+    snippet: Optional[str] = None
+
+
+class BugPredictionRequest(BaseModel):
+    """Input payload for bug prediction analysis."""
+
+    code: str = Field(..., min_length=1, max_length=MAX_CODE_ASSIST_CODE_CHARS)
+    language: str = Field(default="javascript", max_length=50)
+    filename: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("language")
+    @classmethod
+    def normalize_language(cls, value: str) -> str:
+        return str(value or "javascript").strip().lower()
+
+
+class BugPredictionResponse(BaseModel):
+    """Output payload for bug prediction analysis."""
+
+    warnings: List[BugPredictionWarning] = Field(default_factory=list)
+    severity: BugSeverity = BugSeverity.NONE
 
 
 class CodeAssistResponse(BaseModel):
