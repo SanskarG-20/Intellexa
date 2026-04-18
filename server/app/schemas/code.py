@@ -44,6 +44,7 @@ class CodeAction(str, Enum):
     FIX = "fix"
     REFACTOR = "refactor"
     INTENT = "intent"
+    TEST = "test"
 
 
 class BugSeverity(str, Enum):
@@ -396,6 +397,8 @@ class CodeAssistResponse(BaseModel):
     improved_code: Optional[str] = None
     optimized_code: Optional[str] = None
     explanation: str
+    test_cases: List[str] = Field(default_factory=list)
+    edge_cases: List[str] = Field(default_factory=list)
     suggestions: List[CodeSuggestion] = Field(default_factory=list)
     context_used: bool = False
     context_sources: List[str] = Field(default_factory=list)

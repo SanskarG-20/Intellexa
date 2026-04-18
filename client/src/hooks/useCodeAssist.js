@@ -14,6 +14,7 @@ export const CodeAction = {
   GENERATE: 'generate',
   FIX: 'fix',
   REFACTOR: 'refactor',
+  TEST: 'test',
   INTENT: 'intent',
   LEARN: 'learn',
   TASK: 'task',
@@ -165,6 +166,18 @@ export function useCodeAssist() {
   }, [assist]);
 
   /**
+   * Generate unit tests for code with edge-case coverage.
+   */
+  const generateTests = useCallback(async (code, language, prompt = '') => {
+    return assist({
+      code,
+      language,
+      prompt: prompt || 'Generate unit tests for this code with edge cases',
+      action: CodeAction.TEST,
+    });
+  }, [assist]);
+
+  /**
    * Intent-Based Coding: convert user intent into optimized code.
    */
   const intentCode = useCallback(async (intent, code = '', language = 'javascript') => {
@@ -237,6 +250,7 @@ export function useCodeAssist() {
     generate,
     fix,
     refactor,
+    generateTests,
     intentCode,
     learn,
     whyBroke,

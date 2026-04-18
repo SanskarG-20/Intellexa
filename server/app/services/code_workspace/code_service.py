@@ -124,6 +124,41 @@ class CodeWorkspaceCodeService:
         return suggestions[:max_items]
 
     @staticmethod
+    def _extract_text_list(
+        payload: Dict[str, Any],
+        key: str,
+        *,
+        max_items: int,
+        max_chars: int = 220,
+    ) -> List[str]:
+        raw_items = payload.get(key)
+        if not isinstance(raw_items, list):
+            return []
+
+        values: List[str] = []
+        seen = set()
+        for item in raw_items:
+            if isinstance(item, dict):
+                text = str(item.get("description") or item.get("title") or "").strip()
+            else:
+                text = str(item or "").strip()
+
+            if not text:
+                continue
+
+            normalized = " ".join(text.split())
+            dedupe_key = normalized.lower()
+            if dedupe_key in seen:
+                continue
+
+            seen.add(dedupe_key)
+            values.append(normalized[:max_chars])
+            if len(values) >= max_items:
+                break
+
+        return values
+
+    @staticmethod
     def _extract_first_json_object(raw: str) -> Optional[Dict[str, Any]]:
         text = str(raw or "").strip()
         if not text:
@@ -189,6 +224,18 @@ class CodeWorkspaceCodeService:
             "algorithm, structure, complexity, rationale, optimized_code, explanation, suggestions. "
             "suggestions must be an array of short strings. "
             f"optimized_code must be executable {language} code without markdown fences."
+        )
+
+    @staticmethod
+    def _test_system_prompt(language: str) -> str:
+        return (
+            "You are a senior test engineer. "
+            "Generate robust unit tests for the provided code. "
+            "Return strictly valid JSON only with keys: "
+            "test_code, explanation, test_cases, edge_cases, suggestions. "
+            "test_cases and edge_cases must be arrays of short strings. "
+            "suggestions must be an array of short strings. "
+            f"test_code must be executable {language} test code without markdown fences."
         )
 
     @staticmethod
@@ -297,6 +344,96 @@ class CodeWorkspaceCodeService:
         }
 
     @staticmethod
+    def _fallback_test_generation(code: str, language: str) -> Dict[str, Any]:
+        safe_language = str(language or "javascript").strip().lower()
+        source = str(code or "")
+
+        if safe_language == "python":
+            function_name = "target_function"
+            match = re.search(r"def\s+([A-Za-z_][A-Za-z0-9_]*)", source)
+            if match:
+                function_name = match.group(1)
+
+            return {
+                "test_code": (
+                    "import unittest\n\n"
+                    f"from module_under_test import {function_name}\n\n"
+                    f"class Test{function_name.title().replace('_', '')}(unittest.TestCase):\n"
+                    "    def test_happy_path(self):\n"
+                    f"        result = {function_name}(1)\n"
+                    "        self.assertIsNotNone(result)\n\n"
+                    "    def test_invalid_input_type(self):\n"
+                    "        with self.assertRaises((TypeError, ValueError)):\n"
+                    f"            {function_name}(None)\n\n"
+                    "    def test_boundary_input(self):\n"
+                    f"        result = {function_name}(0)\n"
+                    "        self.assertIsNotNone(result)\n\n"
+                    "if __name__ == '__main__':\n"
+                    "    unittest.main()\n"
+                ),
+                "explanation": (
+                    "Generated baseline unit tests covering happy path, invalid input handling, "
+                    "and a boundary condition."
+                ),
+                "test_cases": [
+                    "Happy path with valid input returns expected shape/value.",
+                    "Invalid input type raises TypeError/ValueError.",
+                    "Boundary input at 0 executes without runtime failure.",
+                ],
+                "edge_cases": [
+                    "None/null input.",
+                    "Empty collections/strings when applicable.",
+                    "Very large inputs for performance or overflow behavior.",
+                ],
+                "suggestions": [
+                    "Add fixture-driven parameterized tests.",
+                    "Mock external dependencies for deterministic unit tests.",
+                ],
+            }
+
+        function_name = "targetFunction"
+        match = re.search(r"function\s+([A-Za-z_][A-Za-z0-9_]*)", source)
+        if match:
+            function_name = match.group(1)
+
+        return {
+            "test_code": (
+                f"import {{ {function_name} }} from './module-under-test';\n\n"
+                f"describe('{function_name}', () => {{\n"
+                "  test('handles happy path input', () => {\n"
+                f"    const result = {function_name}(1);\n"
+                "    expect(result).toBeDefined();\n"
+                "  });\n\n"
+                "  test('throws on invalid input', () => {\n"
+                f"    expect(() => {function_name}(null)).toThrow();\n"
+                "  });\n\n"
+                "  test('handles boundary input', () => {\n"
+                f"    const result = {function_name}(0);\n"
+                "    expect(result).toBeDefined();\n"
+                "  });\n"
+                "});\n"
+            ),
+            "explanation": (
+                "Generated baseline unit tests for nominal flow, invalid input behavior, "
+                "and boundary handling."
+            ),
+            "test_cases": [
+                "Happy path with representative valid input.",
+                "Invalid/null input produces explicit failure.",
+                "Boundary values (0, empty string, empty array) are handled safely.",
+            ],
+            "edge_cases": [
+                "Undefined/null parameters.",
+                "Extremely large input values.",
+                "Special characters and whitespace-only string inputs.",
+            ],
+            "suggestions": [
+                "Add snapshot tests for stable structured output.",
+                "Use table-driven tests for multiple edge values.",
+            ],
+        }
+
+    @staticmethod
     def _intent_suggestions_from_payload(payload: Dict[str, Any], max_items: int) -> List[CodeSuggestion]:
         raw_items = payload.get("suggestions")
         if not isinstance(raw_items, list):
@@ -319,6 +456,91 @@ class CodeWorkspaceCodeService:
                 break
 
         return values
+
+    def _build_test_response(
+        self,
+        *,
+        ai_text: str,
+        code: str,
+        language: str,
+        context_used: bool,
+        context_sources: List[str],
+        max_suggestions: int,
+    ) -> CodeAssistResponse:
+        payload = self._extract_first_json_object(ai_text) or {}
+
+        test_code = str(
+            payload.get("test_code")
+            or payload.get("tests")
+            or payload.get("updated_code")
+            or ""
+        ).strip()
+        if not test_code:
+            test_code = self._extract_code_block(ai_text, language) or ""
+
+        explanation = str(payload.get("explanation") or "").strip()
+        if not explanation:
+            explanation = self._strip_code_blocks(ai_text).strip()
+
+        test_cases = self._extract_text_list(
+            payload,
+            "test_cases",
+            max_items=max(3, min(max_suggestions + 2, 8)),
+        )
+        edge_cases = self._extract_text_list(
+            payload,
+            "edge_cases",
+            max_items=max(3, min(max_suggestions + 2, 8)),
+        )
+
+        warnings: List[str] = []
+        fallback = None
+        if not test_code or not test_cases or not edge_cases:
+            fallback = self._fallback_test_generation(code, language)
+            test_code = test_code or str(fallback.get("test_code") or "")
+            explanation = explanation or str(fallback.get("explanation") or "")
+            test_cases = test_cases or list(fallback.get("test_cases") or [])
+            edge_cases = edge_cases or list(fallback.get("edge_cases") or [])
+            warnings.append(
+                "Test generator used deterministic fallback for missing model output fields."
+            )
+
+        if not explanation:
+            explanation = (
+                "Generated unit test scaffolding with core test cases and edge-case coverage guidance."
+            )
+
+        suggestions = self._intent_suggestions_from_payload(payload, max_suggestions)
+        if not suggestions and fallback:
+            suggestions = [
+                CodeSuggestion(title=f"Test Advice {idx}", description=str(item)[:280])
+                for idx, item in enumerate((fallback.get("suggestions") or [])[:max_suggestions], start=1)
+            ]
+
+        if not suggestions:
+            suggestions = [
+                CodeSuggestion(title=f"Test Case {idx}", description=value[:280])
+                for idx, value in enumerate(test_cases[:max_suggestions], start=1)
+            ]
+
+        return CodeAssistResponse(
+            updated_code=test_code or None,
+            improved_code=test_code or None,
+            explanation=explanation,
+            test_cases=test_cases,
+            edge_cases=edge_cases,
+            suggestions=suggestions,
+            context_used=context_used,
+            context_sources=context_sources,
+            action=CodeAction.TEST,
+            language=language,
+            intent_mode=False,
+            intent_decision=None,
+            learning_mode=False,
+            learning_explanation=None,
+            warnings=warnings,
+            cached=False,
+        )
 
     def _build_intent_response(
         self,
@@ -536,6 +758,9 @@ class CodeWorkspaceCodeService:
                 "You are a senior performance engineer. Translate intent into optimized code and "
                 "explicitly choose algorithm and data structure."
             ),
+            CodeAction.TEST: (
+                "You are a senior test engineer. Generate executable unit tests and enumerate edge cases."
+            ),
         }
         return (
             prompts.get(action, prompts[CodeAction.EXPLAIN])
@@ -660,6 +885,46 @@ class CodeWorkspaceCodeService:
                 learning_explanation=learning_explanation,
                 warnings=warnings,
                 cached=False,
+            )
+
+            self._cache_set(cache_key, response)
+            return response
+
+        if request.action == CodeAction.TEST:
+            composite_prompt = self.context_service.build_prompt(
+                user_knowledge=user_knowledge,
+                code=code,
+                task=(
+                    "Generate unit tests for the provided code. "
+                    "Return: executable test code, a concise explanation, explicit test_cases, "
+                    "and explicit edge_cases."
+                ),
+                max_code_chars=settings.CODE_ASSIST_MAX_CODE_CHARS,
+            )
+
+            ai_text = await llama_service.get_ai_response(
+                composite_prompt,
+                system_prompt=self._test_system_prompt(request.language),
+            )
+
+            response = self._build_test_response(
+                ai_text=ai_text,
+                code=code,
+                language=request.language,
+                context_used=bool(request.include_context and context_sources),
+                context_sources=context_sources,
+                max_suggestions=max(1, min(request.max_suggestions, 10)),
+            )
+
+            response = response.model_copy(
+                update={
+                    "suggestions": self._personalize_suggestions(
+                        list(response.suggestions),
+                        style_preferences=adaptation_context.get("style_preferences") or {},
+                        interactions=int(adaptation_context.get("interactions") or 0),
+                        language=request.language,
+                    )
+                }
             )
 
             self._cache_set(cache_key, response)

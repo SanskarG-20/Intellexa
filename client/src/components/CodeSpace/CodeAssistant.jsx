@@ -121,6 +121,8 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
           ? (result.summary || result.title || 'Task plan created.')
           : result.explanation,
         improvedCode: result.optimized_code || result.updated_code || result.improved_code,
+        testCases: result.test_cases || [],
+        edgeCases: result.edge_cases || [],
         suggestions: result.suggestions,
         contextUsed: result.context_used,
         contextSources: result.context_sources,
@@ -260,6 +262,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
 
     const prompts = {
       explain: 'Explain this code',
+      test: 'Generate unit tests for this code with edge cases',
       fix: 'Find and fix any issues',
       refactor: 'Improve code quality and performance',
       intent: 'I want faster search',
@@ -310,6 +313,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
         >
           <option value="explain">Explain</option>
           <option value="generate">Generate</option>
+          <option value="test">Test Generator</option>
           <option value="fix">Fix Bugs</option>
           <option value="refactor">Refactor</option>
           <option value="intent">Intent Code</option>
@@ -335,6 +339,12 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
           onClick={() => handleQuickAction('fix')}
         >
           Fix Bugs
+        </button>
+        <button
+          className={`quick-action-btn ${action === 'test' ? 'active' : ''}`}
+          onClick={() => handleQuickAction('test')}
+        >
+          Test Gen
         </button>
         <button
           className={`quick-action-btn ${action === 'refactor' ? 'active' : ''}`}
@@ -524,7 +534,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
               {message.improvedCode && (
                 <div className="improved-code-section">
                   <div className="improved-code-header">
-                    <span>Improved Code</span>
+                    <span>{message.action === 'test' || message.testCases?.length > 0 ? 'Generated Tests' : 'Improved Code'}</span>
                     <button
                       className="apply-code-btn"
                       onClick={() => handleApplyCode(message.improvedCode)}
@@ -535,6 +545,28 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction, shar
                   <pre className="improved-code">
                     <code>{message.improvedCode}</code>
                   </pre>
+                </div>
+              )}
+
+              {message.testCases?.length > 0 && (
+                <div className="suggestions-section">
+                  <span className="suggestions-title">Test Cases</span>
+                  <ul className="suggestions-list">
+                    {message.testCases.map((item, i) => (
+                      <li key={`test-case-${i}`}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {message.edgeCases?.length > 0 && (
+                <div className="suggestions-section">
+                  <span className="suggestions-title">Edge Cases</span>
+                  <ul className="suggestions-list">
+                    {message.edgeCases.map((item, i) => (
+                      <li key={`edge-case-${i}`}>{item}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
               
