@@ -13,6 +13,8 @@ from app.schemas.code import (
     CodeAutocompleteResponse,
     CodeExecutionRequest,
     CodeExecutionResponse,
+    LearningModeRequest,
+    LearningModeResponse,
     ProjectRefactorRequest,
     ProjectRefactorResponse,
 )
@@ -86,6 +88,51 @@ class CodeWorkspaceController:
                 status_code=500,
                 detail=f"Execution failed: {str(exc)}",
             ) from exc
+
+    async def learning_mode_explain(
+        self,
+        request: LearningModeRequest,
+        user_id: str,
+    ) -> LearningModeResponse:
+        try:
+            response = await code_workspace_code_service.learning_mode_explain(
+                request,
+                user_id=user_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Learning mode failed: {str(exc)}",
+            ) from exc
+
+        # Persist learning-mode requests for longitudinal learning personalization.
+        try:
+            memory_content = (
+                "Code Action: learning_mode\n"
+                f"Language: {request.language}\n"
+                f"Prompt: {request.prompt}\n"
+                f"Code Snippet:\n{request.code[:2000]}\n\n"
+                f"Explanation:\n{response.explanation[:1200]}\n\n"
+                f"Analogy:\n{response.learning_explanation.real_world_analogy[:500]}"
+            )
+            await agentic_memory_service.create_memory(
+                user_id=user_id,
+                content=memory_content,
+                source_type="code",
+                source_id="learning-mode",
+                metadata={
+                    "language": request.language,
+                    "step_count": len(response.learning_explanation.step_by_step),
+                    "logic_points": len(response.learning_explanation.logic_breakdown),
+                    "context_used": bool(response.context_used),
+                },
+            )
+        except Exception:
+            pass
+
+        return response
 
     async def project_refactor(
         self,

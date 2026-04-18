@@ -20,6 +20,8 @@ MAX_PROJECT_REFACTOR_FILES = 200
 MAX_PROJECT_REFACTOR_FILE_CHARS = 120000
 MAX_PROJECT_REFACTOR_TOTAL_CHARS = 1200000
 MAX_PROJECT_REFACTOR_INSTRUCTION_CHARS = 4000
+MAX_LEARNING_STEPS = 10
+MAX_LEARNING_LOGIC_ITEMS = 8
 
 
 class CodeAction(str, Enum):
@@ -133,6 +135,10 @@ class CodeAssistRequest(BaseModel):
         max_length=MAX_CODE_ASSIST_CONTEXT_CHARS,
         description="Optional additional context provided by the client",
     )
+    learning_mode: bool = Field(
+        default=False,
+        description="Enable deep educational explanation mode for code understanding",
+    )
     max_suggestions: int = Field(default=5, ge=1, le=10, description="Max suggestions in response")
 
     @field_validator("prompt")
@@ -151,6 +157,50 @@ class CodeSuggestion(BaseModel):
     code_snippet: Optional[str] = None
 
 
+class CodeLearningExplanation(BaseModel):
+    """Structured learning-oriented explanation payload for code."""
+
+    step_by_step: List[str] = Field(default_factory=list, max_length=MAX_LEARNING_STEPS)
+    logic_breakdown: List[str] = Field(default_factory=list, max_length=MAX_LEARNING_LOGIC_ITEMS)
+    real_world_analogy: str = Field(default="")
+
+
+class LearningModeRequest(BaseModel):
+    """Request schema for dedicated learning mode endpoint."""
+
+    code: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_CODE_ASSIST_CODE_CHARS,
+        description="Code snippet to explain",
+    )
+    language: str = Field(default="javascript", max_length=50)
+    prompt: str = Field(
+        default="Explain this code deeply for learning.",
+        max_length=MAX_CODE_ASSIST_PROMPT_CHARS,
+    )
+    include_context: bool = Field(default=True)
+    context: Optional[str] = Field(default=None, max_length=MAX_CODE_ASSIST_CONTEXT_CHARS)
+
+    @field_validator("prompt")
+    @classmethod
+    def normalize_prompt(cls, value: str) -> str:
+        normalized = " ".join(str(value or "").split()).strip()
+        return normalized or "Explain this code deeply for learning."
+
+
+class LearningModeResponse(BaseModel):
+    """Response schema for dedicated learning mode endpoint."""
+
+    explanation: str
+    learning_explanation: CodeLearningExplanation
+    warnings: List[str] = Field(default_factory=list)
+    context_used: bool = False
+    context_sources: List[str] = Field(default_factory=list)
+    language: str
+    cached: bool = False
+
+
 class CodeAssistResponse(BaseModel):
     """Schema for code assistance response."""
     updated_code: Optional[str] = None
@@ -161,6 +211,8 @@ class CodeAssistResponse(BaseModel):
     context_sources: List[str] = Field(default_factory=list)
     action: CodeAction
     language: str
+    learning_mode: bool = False
+    learning_explanation: Optional[CodeLearningExplanation] = None
     warnings: List[str] = Field(default_factory=list)
     cached: bool = False
 

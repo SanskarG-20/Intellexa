@@ -14,6 +14,7 @@ export const CodeAction = {
   GENERATE: 'generate',
   FIX: 'fix',
   REFACTOR: 'refactor',
+  LEARN: 'learn',
 };
 
 /**
@@ -40,6 +41,7 @@ export function useCodeAssist() {
         action: request.action || CodeAction.EXPLAIN,
         includeContext: request.includeContext !== false,
         context: request.context,
+        learningMode: request.learningMode === true,
         maxSuggestions: request.maxSuggestions || 5,
       });
       
@@ -115,6 +117,19 @@ export function useCodeAssist() {
   }, [assist]);
 
   /**
+   * Learning Mode deep explanation
+   */
+  const learn = useCallback(async (code, language, prompt = '') => {
+    return assist({
+      code,
+      language,
+      prompt: prompt || 'Explain this code deeply for learning',
+      action: CodeAction.EXPLAIN,
+      learningMode: true,
+    });
+  }, [assist]);
+
+  /**
    * Clear the current response
    */
   const clearResponse = useCallback(() => {
@@ -139,6 +154,7 @@ export function useCodeAssist() {
     generate,
     fix,
     refactor,
+    learn,
     clearResponse,
     clearHistory,
   };

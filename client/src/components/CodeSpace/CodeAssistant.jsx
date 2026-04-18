@@ -9,6 +9,7 @@ import useCodeAssist from '../../hooks/useCodeAssist';
 function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
   const [prompt, setPrompt] = useState('');
   const [action, setAction] = useState('explain');
+  const [learningMode, setLearningMode] = useState(false);
   const [messages, setMessages] = useState([]);
   
   const messagesEndRef = useRef(null);
@@ -39,6 +40,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
       role: 'user',
       content: prompt,
       action,
+      learningMode,
     };
     
     setMessages(prev => [...prev, userMessage]);
@@ -50,6 +52,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
       language: activeFile?.language || 'javascript',
       prompt,
       action,
+      learningMode,
     });
     
     // Add AI message
@@ -62,6 +65,8 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
         suggestions: result.suggestions,
         contextUsed: result.context_used,
         contextSources: result.context_sources,
+        learningMode: result.learning_mode,
+        learningExplanation: result.learning_explanation,
         warnings: result.warnings || [],
       };
       
@@ -70,15 +75,23 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
     }
     
     setPrompt('');
-  }, [prompt, action, activeFile, assist]);
+  }, [prompt, action, learningMode, activeFile, assist]);
 
   // Quick action buttons
   const handleQuickAction = useCallback((quickAction) => {
-    setAction(quickAction);
+    if (quickAction === 'learning') {
+      setAction('explain');
+      setLearningMode(true);
+    } else {
+      setAction(quickAction);
+      setLearningMode(false);
+    }
+
     const prompts = {
       explain: 'Explain this code',
       fix: 'Find and fix any issues',
       refactor: 'Improve code quality and performance',
+      learning: 'Teach me this code step-by-step with logic breakdown and analogy',
     };
     setPrompt(prompts[quickAction] || '');
     inputRef.current?.focus();
@@ -98,7 +111,13 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
         <select
           className="code-assist-action-select"
           value={action}
-          onChange={(e) => setAction(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value;
+            setAction(next);
+            if (next !== 'explain') {
+              setLearningMode(false);
+            }
+          }}
         >
           <option value="explain">Explain</option>
           <option value="generate">Generate</option>
@@ -130,6 +149,12 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           onClick={() => handleQuickAction('refactor')}
         >
           Refactor
+        </button>
+        <button
+          className={`quick-action-btn ${learningMode ? 'active' : ''}`}
+          onClick={() => handleQuickAction('learning')}
+        >
+          Learning
         </button>
       </div>
 
@@ -165,6 +190,27 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
               <div className="message-content">
                 {message.content}
               </div>
+
+              {message.learningMode && message.learningExplanation && (
+                <div className="suggestions-section">
+                  <span className="suggestions-title">Step-by-Step Explanation</span>
+                  <ul className="suggestions-list">
+                    {(message.learningExplanation.step_by_step || []).map((step, i) => (
+                      <li key={`learn-step-${i}`}>{step}</li>
+                    ))}
+                  </ul>
+
+                  <span className="suggestions-title">Logic Breakdown</span>
+                  <ul className="suggestions-list">
+                    {(message.learningExplanation.logic_breakdown || []).map((item, i) => (
+                      <li key={`learn-logic-${i}`}>{item}</li>
+                    ))}
+                  </ul>
+
+                  <span className="suggestions-title">Real-World Analogy</span>
+                  <p>{message.learningExplanation.real_world_analogy}</p>
+                </div>
+              )}
               
               {message.improvedCode && (
                 <div className="improved-code-section">
@@ -227,7 +273,7 @@ function CodeAssistant({ activeFile, isLoading, onApplyCode, onInteraction }) {
           className="code-assistant-input"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Ask about your code..."
+          placeholder={learningMode ? 'Ask for a deep teaching explanation...' : 'Ask about your code...'}
           rows={2}
           disabled={isAssistLoading}
           onKeyDown={(e) => {

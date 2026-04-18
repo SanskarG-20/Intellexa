@@ -19,9 +19,13 @@ from app.schemas.code import (
     CodeAutocompleteItem,
     CodeAutocompleteRequest,
     CodeAutocompleteResponse,
+    CodeLearningExplanation,
     CodeSuggestion,
+    LearningModeRequest,
+    LearningModeResponse,
 )
 from app.services.code_workspace.context_service import code_workspace_context_service
+from app.services.explanation_service import explanation_service
 from app.services.llama_service import llama_service
 
 
@@ -118,6 +122,40 @@ class CodeWorkspaceCodeService:
         return suggestions[:max_items]
 
     @staticmethod
+    def _extract_learning_suggestions(
+        learning_explanation: CodeLearningExplanation,
+        max_items: int = 5,
+    ) -> List[CodeSuggestion]:
+        suggestions: List[CodeSuggestion] = []
+
+        for index, step in enumerate(learning_explanation.step_by_step[:max_items], start=1):
+            suggestions.append(
+                CodeSuggestion(
+                    title=f"Learning Step {index}",
+                    description=step,
+                )
+            )
+
+        if not suggestions and learning_explanation.logic_breakdown:
+            for index, item in enumerate(learning_explanation.logic_breakdown[:max_items], start=1):
+                suggestions.append(
+                    CodeSuggestion(
+                        title=f"Logic Point {index}",
+                        description=item,
+                    )
+                )
+
+        if not suggestions:
+            suggestions.append(
+                CodeSuggestion(
+                    title="Review",
+                    description="Walk through the code line by line and map each line to data flow.",
+                )
+            )
+
+        return suggestions[:max_items]
+
+    @staticmethod
     def _assist_system_prompt(action: CodeAction, language: str) -> str:
         prompts = {
             CodeAction.EXPLAIN: (
@@ -164,6 +202,7 @@ class CodeWorkspaceCodeService:
                 "code": sha256(code.encode("utf-8")).hexdigest(),
                 "context": request.include_context,
                 "extra_context": request.context or "",
+                "learning_mode": bool(request.learning_mode),
             },
         )
         cached = self._cache_get(cache_key)
@@ -182,6 +221,51 @@ class CodeWorkspaceCodeService:
             )
         elif request.context:
             user_knowledge = self._clip(request.context, 1200)
+
+        if request.learning_mode:
+            learning_payload = await explanation_service.generate_learning_mode_explanation(
+                code_snippet=code,
+                language=request.language,
+                user_prompt=prompt,
+            )
+
+            learning_explanation = CodeLearningExplanation(
+                step_by_step=list(learning_payload.get("step_by_step") or []),
+                logic_breakdown=list(learning_payload.get("logic_breakdown") or []),
+                real_world_analogy=str(learning_payload.get("real_world_analogy") or ""),
+            )
+
+            warnings = [str(item) for item in (learning_payload.get("warnings") or []) if str(item).strip()]
+            if request.action != CodeAction.EXPLAIN:
+                warnings.append(
+                    "Learning Mode focuses on explainability; action was treated as educational explanation."
+                )
+
+            overview = str(learning_payload.get("overview") or "").strip()
+            explanation_text = overview or (
+                "Learning Mode produced a deep explanation with step-by-step and logic breakdown outputs."
+            )
+
+            response = CodeAssistResponse(
+                updated_code=None,
+                improved_code=None,
+                explanation=explanation_text,
+                suggestions=self._extract_learning_suggestions(
+                    learning_explanation,
+                    max_items=max(1, min(request.max_suggestions, 10)),
+                ),
+                context_used=bool(request.include_context and context_sources),
+                context_sources=context_sources,
+                action=request.action,
+                language=request.language,
+                learning_mode=True,
+                learning_explanation=learning_explanation,
+                warnings=warnings,
+                cached=False,
+            )
+
+            self._cache_set(cache_key, response)
+            return response
 
         composite_prompt = self.context_service.build_prompt(
             user_knowledge=user_knowledge,
@@ -212,6 +296,8 @@ class CodeWorkspaceCodeService:
             context_sources=context_sources,
             action=request.action,
             language=request.language,
+            learning_mode=False,
+            learning_explanation=None,
             warnings=[],
             cached=False,
         )
@@ -355,6 +441,41 @@ class CodeWorkspaceCodeService:
         )
         self._cache_set(cache_key, response)
         return response
+
+    async def learning_mode_explain(
+        self,
+        request: LearningModeRequest,
+        user_id: str,
+    ) -> LearningModeResponse:
+        """Dedicated Learning Mode endpoint that reuses assist orchestration."""
+        assist_request = CodeAssistRequest(
+            code=request.code,
+            language=request.language,
+            prompt=request.prompt,
+            action=CodeAction.EXPLAIN,
+            include_context=request.include_context,
+            context=request.context,
+            learning_mode=True,
+            max_suggestions=5,
+        )
+
+        response = await self.assist(assist_request, user_id=user_id)
+
+        learning_explanation = response.learning_explanation or CodeLearningExplanation(
+            step_by_step=["No learning steps available."],
+            logic_breakdown=["No logic breakdown available."],
+            real_world_analogy="No analogy available.",
+        )
+
+        return LearningModeResponse(
+            explanation=response.explanation,
+            learning_explanation=learning_explanation,
+            warnings=list(response.warnings),
+            context_used=bool(response.context_used),
+            context_sources=list(response.context_sources),
+            language=response.language,
+            cached=bool(response.cached),
+        )
 
 
 code_workspace_code_service = CodeWorkspaceCodeService()

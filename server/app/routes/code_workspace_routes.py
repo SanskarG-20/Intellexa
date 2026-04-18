@@ -17,6 +17,8 @@ from app.schemas.code import (
     CodeAutocompleteResponse,
     CodeExecutionRequest,
     CodeExecutionResponse,
+    LearningModeRequest,
+    LearningModeResponse,
     ProjectRefactorRequest,
     ProjectRefactorResponse,
 )
@@ -71,6 +73,24 @@ async def post_code_autocomplete(
 async def post_code_execute(request: CodeExecutionRequest):
     """Sandboxed execution endpoint."""
     return await code_workspace_controller.execute(request)
+
+
+@router.post("/learning-mode", response_model=LearningModeResponse)
+async def post_learning_mode(
+    request: LearningModeRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for deep educational code explanations."""
+    return await code_workspace_controller.learning_mode_explain(request, user_id=user_id)
+
+
+@router.post("/api/v1/code/learning-mode", response_model=LearningModeResponse)
+async def post_learning_mode_versioned(
+    request: LearningModeRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Versioned alias for Learning Mode explanations."""
+    return await code_workspace_controller.learning_mode_explain(request, user_id=user_id)
 
 
 @router.post("/project-refactor", response_model=ProjectRefactorResponse)

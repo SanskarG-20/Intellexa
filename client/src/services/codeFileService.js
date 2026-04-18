@@ -209,7 +209,21 @@ export async function codeAssist(request) {
     action: request.action || 'explain',
     include_context: request.includeContext !== false,
     context: request.context,
+    learning_mode: request.learningMode === true,
     max_suggestions: request.maxSuggestions || 5,
+  });
+}
+
+/**
+ * Request Learning Mode deep explanation for a code snippet.
+ */
+export async function learningModeExplain(request) {
+  return requestWithFallback('post', `${CODE_API_PREFIX}/learning-mode`, {
+    code: request.code || '',
+    language: request.language || 'javascript',
+    prompt: request.prompt || 'Explain this code deeply for learning.',
+    include_context: request.includeContext !== false,
+    context: request.context,
   });
 }
 
@@ -306,6 +320,7 @@ export default {
   importCodeFiles,
   getFileTree,
   codeAssist,
+  learningModeExplain,
   codeAutocomplete,
   executeCode,
   projectRefactor,
