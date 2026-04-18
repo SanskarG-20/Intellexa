@@ -289,7 +289,7 @@ class ChatService:
         memory_used = bool(memory_results)
         
         if memory_used:
-            print(f"[ChatService] ✓ Memory context used: {len(memory_results)} chunks from user documents")
+            print(f"[ChatService] [OK] Memory context used: {len(memory_results)} chunks from user documents")
 
         # 4. Real-time detection + forced search (critical path)
         autopsy_needs_search = bool((autopsy_res or {}).get("needs_search", False))

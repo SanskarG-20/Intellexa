@@ -5,7 +5,7 @@ Defines request/response models for the Multimodal Context Memory System.
 
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 
 # ============================================================================
@@ -94,6 +94,12 @@ class ContextResult(BaseModel):
     file_type: str
     similarity: float = Field(..., ge=0.0, le=1.0, description="Similarity score (0-1)")
     page_number: Optional[int] = None
+    memory_id: Optional[str] = None
+    summary: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    keywords: List[str] = Field(default_factory=list)
+    source_type: Optional[str] = None
+    related_memories: List[str] = Field(default_factory=list)
 
 
 class ContextQueryResponse(BaseModel):
@@ -101,6 +107,44 @@ class ContextQueryResponse(BaseModel):
     query: str
     results: List[ContextResult]
     formatted_context: Optional[str] = Field(None, description="Formatted context for LLM prompt")
+    total_found: int
+
+
+# ============================================================================
+# Agentic Memory Node Schemas
+# ============================================================================
+
+class AgenticMemoryCreateRequest(BaseModel):
+    """Request to add a structured memory node into the agentic memory graph."""
+    content: str = Field(..., min_length=1, description="Memory content to store")
+    source_type: Literal['docs', 'images', 'videos', 'code', 'chat', 'other'] = Field(
+        'other',
+        description="Origin of the memory content"
+    )
+    source_id: Optional[str] = Field(None, description="Optional source identifier")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Optional metadata")
+
+
+class AgenticMemoryNode(BaseModel):
+    """Structured memory node shape for the agentic memory system."""
+    id: str
+    user_id: str
+    content: str
+    summary: str
+    tags: List[str] = Field(default_factory=list)
+    keywords: List[str] = Field(default_factory=list)
+    embedding: Optional[List[float]] = None
+    related_memories: List[str] = Field(default_factory=list)
+    source_type: str = 'other'
+    source_id: Optional[str] = None
+    created_at: datetime
+
+
+class AgenticContextQueryResponse(BaseModel):
+    """Response model for graph-aware agentic memory retrieval."""
+    query: str
+    results: List[AgenticMemoryNode]
+    formatted_context: Optional[str] = Field(None, description="Graph-aware formatted context for LLM prompt")
     total_found: int
 
 

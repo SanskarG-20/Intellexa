@@ -26,7 +26,10 @@ from app.schemas.memory import (
     ChunkListResponse,
     ChunkInfo,
     MemoryStatsResponse,
-    MemoryErrorResponse
+    MemoryErrorResponse,
+    AgenticMemoryCreateRequest,
+    AgenticMemoryNode,
+    AgenticContextQueryResponse,
 )
 from app.services.memory.storage_service import storage_service, StorageServiceError
 from app.services.memory.chunking_service import chunking_service
@@ -35,6 +38,7 @@ from app.services.memory.retrieval_service import retrieval_service
 from app.services.memory.pdf_service import pdf_service, PDFServiceError
 from app.services.memory.image_service import image_service, ImageServiceError
 from app.services.memory.video_service import video_service, VideoServiceError
+from app.services.memory.agentic_memory_service import agentic_memory_service
 
 
 router = APIRouter(prefix="/api/v1/memory", tags=["Memory"])
@@ -74,6 +78,16 @@ def _detect_file_type(content_type: str, filename: str) -> str:
         elif ext in ['mp4', 'mov', 'avi', 'webm', 'mkv']:
             return 'video'
     return 'text'
+
+
+def _parse_datetime(value: Optional[str]) -> datetime:
+    """Parse ISO datetime value defensively."""
+    if not value:
+        return datetime.utcnow()
+    try:
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except Exception:
+        return datetime.utcnow()
 
 
 # ============================================================================
@@ -154,7 +168,7 @@ async def re_embed_all_documents(
                     }).eq('id', doc_id).execute()
                     
                     total_re_embedded += stored_count
-                    print(f"[MemoryAPI] ✓ Re-embedded {stored_count}/{len(chunk_ids)} chunks for: {filename}")
+                    print(f"[MemoryAPI] [OK] Re-embedded {stored_count}/{len(chunk_ids)} chunks for: {filename}")
                 else:
                     errors.append(f"{filename}: No embeddings generated")
                     
@@ -251,6 +265,36 @@ async def process_document_background(
             # Full success
             await _update_document_status(document_id, 'ready')
             print(f"[MemoryAPI] Document {document_id} processed successfully: {len(chunks)} chunks, {embedding_count} embeddings")
+
+        # Build agentic memory nodes from extracted multimodal content.
+        try:
+            source_type = 'docs'
+            if file_type == 'image':
+                source_type = 'images'
+            elif file_type == 'video':
+                source_type = 'videos'
+
+            chunk_contents = [
+                str(chunk.content)
+                for chunk in (chunks or [])
+                if str(getattr(chunk, 'content', '')).strip()
+            ]
+
+            created_nodes = await agentic_memory_service.ingest_contents(
+                user_id=user_id,
+                contents=chunk_contents,
+                source_type=source_type,
+                source_id=document_id,
+                metadata={
+                    'document_id': document_id,
+                    'filename': filename,
+                    'file_type': file_type,
+                },
+                max_items=30,
+            )
+            print(f"[MemoryAPI] Agentic memory ingest complete: {created_nodes} nodes from {filename}")
+        except Exception as e:
+            print(f"[MemoryAPI] Agentic memory ingest failed for {filename}: {e}")
         
     except Exception as e:
         print(f"[MemoryAPI] Document processing failed: {e}")
@@ -726,7 +770,13 @@ async def query_context(
             filename=r.filename,
             file_type=r.file_type,
             similarity=r.similarity,
-            page_number=r.page_number
+            page_number=r.page_number,
+            memory_id=r.memory_id,
+            summary=r.summary,
+            tags=r.tags or [],
+            keywords=r.keywords or [],
+            source_type=r.source_type,
+            related_memories=r.related_memories or [],
         )
         for r in results
     ]
@@ -739,6 +789,85 @@ async def query_context(
         results=context_results,
         formatted_context=formatted_context,
         total_found=len(context_results)
+    )
+
+
+@router.post("/agentic/memories", response_model=AgenticMemoryNode)
+async def add_agentic_memory(
+    request: AgenticMemoryCreateRequest,
+    user_id: str = Depends(_get_user_id)
+):
+    """
+    Add structured memory content from docs/images/videos/code/chat contexts.
+    """
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    created = await agentic_memory_service.create_memory(
+        user_id=user_id,
+        content=request.content,
+        source_type=request.source_type,
+        source_id=request.source_id,
+        metadata=request.metadata,
+    )
+
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create memory node")
+
+    return AgenticMemoryNode(
+        id=str(created.get('id')),
+        user_id=str(created.get('user_id', user_id)),
+        content=str(created.get('content', request.content)),
+        summary=str(created.get('summary', request.content[:220])),
+        tags=list(created.get('tags') or []),
+        keywords=list(created.get('keywords') or []),
+        embedding=created.get('embedding'),
+        related_memories=list(created.get('related_memories') or []),
+        source_type=str(created.get('source_type') or request.source_type),
+        source_id=created.get('source_id') or request.source_id,
+        created_at=_parse_datetime(created.get('created_at')),
+    )
+
+
+@router.post("/agentic/query", response_model=AgenticContextQueryResponse)
+async def query_agentic_memory(
+    request: ContextQueryRequest,
+    user_id: str = Depends(_get_user_id)
+):
+    """
+    Graph-aware memory retrieval (top semantic memories + linked neighbors).
+    """
+    rows = await agentic_memory_service.retrieve_context(
+        query=request.query,
+        user_id=user_id,
+        top_k=request.top_k,
+    )
+
+    nodes = [
+        AgenticMemoryNode(
+            id=str(row.get('id')),
+            user_id=str(row.get('user_id', user_id)),
+            content=str(row.get('content', '')),
+            summary=str(row.get('summary') or '') or str(row.get('content', ''))[:220],
+            tags=list(row.get('tags') or []),
+            keywords=list(row.get('keywords') or []),
+            embedding=None,
+            related_memories=list(row.get('related_memories') or []),
+            source_type=str(row.get('source_type') or 'other'),
+            source_id=row.get('source_id'),
+            created_at=_parse_datetime(row.get('created_at')),
+        )
+        for row in rows
+    ]
+
+    prompt_context_rows = retrieval_service._convert_agentic_rows(rows)
+    formatted_context = retrieval_service.format_context_for_prompt(prompt_context_rows)
+
+    return AgenticContextQueryResponse(
+        query=request.query,
+        results=nodes,
+        formatted_context=formatted_context,
+        total_found=len(nodes),
     )
 
 

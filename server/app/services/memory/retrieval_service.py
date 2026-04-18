@@ -3,12 +3,13 @@ retrieval_service.py - Vector Similarity Search
 Retrieves relevant document chunks using pgvector similarity search.
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
 from app.db.supabase import supabase
 from app.core.config import settings
 from app.services.memory.embedding_service import embedding_service
+from app.services.memory.agentic_memory_service import agentic_memory_service
 
 
 @dataclass
@@ -21,6 +22,12 @@ class RetrievedContext:
     file_type: str
     similarity: float
     page_number: Optional[int] = None
+    memory_id: Optional[str] = None
+    summary: Optional[str] = None
+    tags: Optional[List[str]] = None
+    keywords: Optional[List[str]] = None
+    source_type: Optional[str] = None
+    related_memories: Optional[List[str]] = None
 
 
 class RetrievalServiceError(Exception):
@@ -81,15 +88,33 @@ class RetrievalService:
             
             print(f"[RetrievalService] Query embedding generated: {len(query_embedding)} dims")
             
-            # Perform similarity search using RPC function
-            results = await self._similarity_search(
+            # Retrieve chunk-level vector context.
+            document_results = await self._similarity_search(
                 query_embedding=query_embedding,
                 user_id=user_id,
                 top_k=top_k,
                 similarity_threshold=similarity_threshold
             )
+
+            # Retrieve graph-linked, evolving memory context.
+            agentic_rows = await agentic_memory_service.retrieve_context(
+                query=query,
+                user_id=user_id,
+                top_k=max(4, top_k),
+                query_embedding=query_embedding,
+            )
+            agentic_results = self._convert_agentic_rows(agentic_rows)
+
+            results = self._merge_context_results(
+                document_results=document_results,
+                agentic_results=agentic_results,
+                top_k=top_k,
+            )
             
-            print(f"[RetrievalService] Found {len(results)} results (threshold: {similarity_threshold})")
+            print(
+                f"[RetrievalService] Found {len(results)} merged results "
+                f"(documents={len(document_results)}, agentic={len(agentic_results)})"
+            )
             
             return results
             
@@ -99,6 +124,66 @@ class RetrievalService:
             traceback.print_exc()
             # Don't raise - retrieval failure shouldn't block chat
             return []
+
+    @staticmethod
+    def _convert_agentic_rows(rows: List[Dict[str, Any]]) -> List[RetrievedContext]:
+        """Convert agentic memory rows to RetrievedContext records."""
+        converted: List[RetrievedContext] = []
+        for row in rows or []:
+            memory_id = str(row.get('id', '')).strip()
+            if not memory_id:
+                continue
+
+            source_type = str(row.get('source_type') or 'other')
+            source_id = str(row.get('source_id') or memory_id)
+            summary = str(row.get('summary') or '').strip()
+            content = str(row.get('content') or '').strip()
+            if summary and summary not in content:
+                content_text = f"Summary: {summary}\nDetails: {content}"
+            else:
+                content_text = content
+
+            converted.append(
+                RetrievedContext(
+                    chunk_id=memory_id,
+                    document_id=source_id,
+                    content=content_text,
+                    filename=f"memory::{source_type}",
+                    file_type=source_type,
+                    similarity=max(0.0, min(1.0, float(row.get('similarity') or 0.0))),
+                    page_number=None,
+                    memory_id=memory_id,
+                    summary=summary or None,
+                    tags=list(row.get('tags') or []),
+                    keywords=list(row.get('keywords') or []),
+                    source_type=source_type,
+                    related_memories=list(row.get('related_memories') or []),
+                )
+            )
+
+        return converted
+
+    @staticmethod
+    def _merge_context_results(
+        document_results: List[RetrievedContext],
+        agentic_results: List[RetrievedContext],
+        top_k: int,
+    ) -> List[RetrievedContext]:
+        """
+        Merge semantic chunk results with graph-linked memory results.
+        Deduplicates by content identity and keeps highest-confidence entries.
+        """
+        merged: Dict[str, RetrievedContext] = {}
+
+        for item in (document_results or []) + (agentic_results or []):
+            key = item.memory_id or f"chunk::{item.chunk_id}"
+            existing = merged.get(key)
+            if not existing or item.similarity > existing.similarity:
+                merged[key] = item
+
+        ranked = list(merged.values())
+        ranked.sort(key=lambda row: row.similarity, reverse=True)
+        return ranked[:top_k]
     
     async def _similarity_search(
         self,
@@ -160,7 +245,7 @@ class RetrievalService:
                     similarity=similarity,
                     page_number=item.get('page_number')
                 ))
-                print(f"[RetrievalService] ✓ Result: {item.get('filename')} - similarity: {similarity:.3f}")
+                print(f"[RetrievalService] [OK] Result: {item.get('filename')} - similarity: {similarity:.3f}")
             
             # Limit to top_k after filtering
             results = results[:top_k]
@@ -262,6 +347,13 @@ class RetrievalService:
             if ctx.page_number:
                 source_info += f", Page {ctx.page_number}"
             source_info += f", Relevance: {ctx.similarity:.0%}]"
+
+            if ctx.source_type and ctx.source_type != 'document_chunk':
+                source_info = f"[MEMORY: {ctx.source_type}, Relevance: {ctx.similarity:.0%}]"
+                if ctx.tags:
+                    source_info += f" Tags={', '.join(ctx.tags[:4])}"
+                if ctx.related_memories:
+                    source_info += f" Linked={len(ctx.related_memories)}"
             
             chunk_text = f"\n{source_info}\n{ctx.content}\n"
             
