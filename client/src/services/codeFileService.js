@@ -240,6 +240,23 @@ export async function executeCode(request) {
 }
 
 /**
+ * Run AI project-wide refactor engine.
+ */
+export async function projectRefactor(request) {
+  return requestWithFallback('post', `${CODE_API_PREFIX}/project-refactor`, {
+    files: (request.files || []).map((file) => ({
+      path: file.path,
+      content: file.content || '',
+      language: file.language,
+    })),
+    instruction: request.instruction,
+    safe_mode: request.safeMode !== false,
+    include_explanation: request.includeExplanation !== false,
+    max_files_to_update: request.maxFilesToUpdate || 40,
+  });
+}
+
+/**
  * Detect language from file extension
  */
 export function detectLanguage(filename) {
@@ -291,5 +308,6 @@ export default {
   codeAssist,
   codeAutocomplete,
   executeCode,
+  projectRefactor,
   detectLanguage,
 };

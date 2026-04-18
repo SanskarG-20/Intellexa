@@ -17,6 +17,8 @@ from app.schemas.code import (
     CodeAutocompleteResponse,
     CodeExecutionRequest,
     CodeExecutionResponse,
+    ProjectRefactorRequest,
+    ProjectRefactorResponse,
 )
 
 
@@ -69,3 +71,21 @@ async def post_code_autocomplete(
 async def post_code_execute(request: CodeExecutionRequest):
     """Sandboxed execution endpoint."""
     return await code_workspace_controller.execute(request)
+
+
+@router.post("/project-refactor", response_model=ProjectRefactorResponse)
+async def post_project_refactor(
+    request: ProjectRefactorRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Canonical endpoint for project-wide AI refactoring."""
+    return await code_workspace_controller.project_refactor(request, user_id=user_id)
+
+
+@router.post("/api/v1/code/project-refactor", response_model=ProjectRefactorResponse)
+async def post_project_refactor_versioned(
+    request: ProjectRefactorRequest,
+    user_id: str = Depends(_resolve_user_id),
+):
+    """Versioned alias for project-wide AI refactoring."""
+    return await code_workspace_controller.project_refactor(request, user_id=user_id)

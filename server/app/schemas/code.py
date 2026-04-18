@@ -16,6 +16,10 @@ MAX_CODE_ASSIST_CONTEXT_CHARS = 8000
 MAX_AUTOCOMPLETE_SUGGESTIONS = 10
 MAX_EXECUTION_CODE_CHARS = 20000
 MAX_EXECUTION_STDIN_CHARS = 4000
+MAX_PROJECT_REFACTOR_FILES = 200
+MAX_PROJECT_REFACTOR_FILE_CHARS = 120000
+MAX_PROJECT_REFACTOR_TOTAL_CHARS = 1200000
+MAX_PROJECT_REFACTOR_INSTRUCTION_CHARS = 4000
 
 
 class CodeAction(str, Enum):
@@ -158,6 +162,97 @@ class CodeAssistResponse(BaseModel):
     action: CodeAction
     language: str
     warnings: List[str] = Field(default_factory=list)
+    cached: bool = False
+
+
+class ProjectRefactorFile(BaseModel):
+    """One project file supplied to the project refactor engine."""
+
+    path: str = Field(..., min_length=1, max_length=500)
+    content: str = Field(default="", max_length=MAX_PROJECT_REFACTOR_FILE_CHARS)
+    language: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        normalized = str(value or "").strip().replace("\\", "/")
+        if not normalized:
+            raise ValueError("path must not be empty")
+        if normalized.startswith("/"):
+            normalized = normalized.lstrip("/")
+        if ".." in normalized.split("/"):
+            raise ValueError("path cannot contain parent traversal")
+        return normalized
+
+
+class ProjectRefactorRequest(BaseModel):
+    """Request schema for codebase-level refactoring."""
+
+    files: List[ProjectRefactorFile] = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_PROJECT_REFACTOR_FILES,
+        description="Project files to refactor",
+    )
+    instruction: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_PROJECT_REFACTOR_INSTRUCTION_CHARS,
+        description="Refactor directive from the user",
+    )
+    safe_mode: bool = Field(
+        default=True,
+        description="Enable conservative protections to avoid breaking changes",
+    )
+    include_explanation: bool = Field(default=True)
+    max_files_to_update: int = Field(default=40, ge=1, le=MAX_PROJECT_REFACTOR_FILES)
+
+    @field_validator("instruction")
+    @classmethod
+    def validate_instruction(cls, value: str) -> str:
+        normalized = " ".join(str(value or "").split()).strip()
+        if not normalized:
+            raise ValueError("instruction must not be empty")
+        return normalized
+
+    @field_validator("files")
+    @classmethod
+    def validate_files(cls, values: List[ProjectRefactorFile]) -> List[ProjectRefactorFile]:
+        seen = set()
+        total_chars = 0
+
+        for file_item in values:
+            if file_item.path in seen:
+                raise ValueError(f"duplicate path found: {file_item.path}")
+            seen.add(file_item.path)
+            total_chars += len(file_item.content or "")
+
+        if total_chars > MAX_PROJECT_REFACTOR_TOTAL_CHARS:
+            raise ValueError(
+                f"Total content size exceeds limit of {MAX_PROJECT_REFACTOR_TOTAL_CHARS} characters"
+            )
+
+        return values
+
+
+class ProjectRefactorUpdatedFile(BaseModel):
+    """One updated file returned by project refactor engine."""
+
+    path: str
+    content: str
+    change_summary: str = Field(default="")
+    safe: bool = True
+
+
+class ProjectRefactorResponse(BaseModel):
+    """Response payload for project refactor engine."""
+
+    updated_files: List[ProjectRefactorUpdatedFile] = Field(default_factory=list)
+    explanation: str
+    warnings: List[str] = Field(default_factory=list)
+    total_input_files: int = 0
+    changed_files: int = 0
+    safe_mode: bool = True
     cached: bool = False
 
 

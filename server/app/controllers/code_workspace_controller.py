@@ -13,9 +13,12 @@ from app.schemas.code import (
     CodeAutocompleteResponse,
     CodeExecutionRequest,
     CodeExecutionResponse,
+    ProjectRefactorRequest,
+    ProjectRefactorResponse,
 )
 from app.services.code_workspace.code_service import code_workspace_code_service
 from app.services.code_workspace.execution_service import code_execution_service
+from app.services.code_workspace.project_refactor_service import project_refactor_engine_service
 from app.services.memory.agentic_memory_service import agentic_memory_service
 
 
@@ -83,6 +86,52 @@ class CodeWorkspaceController:
                 status_code=500,
                 detail=f"Execution failed: {str(exc)}",
             ) from exc
+
+    async def project_refactor(
+        self,
+        request: ProjectRefactorRequest,
+        user_id: str,
+    ) -> ProjectRefactorResponse:
+        try:
+            response = await project_refactor_engine_service.refactor_project(
+                request,
+                user_id=user_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Project refactor failed: {str(exc)}",
+            ) from exc
+
+        # Persist summary of project-wide refactor into agentic memory.
+        try:
+            changed_paths = [item.path for item in response.updated_files[:30]]
+            memory_content = (
+                f"Code Action: project_refactor\n"
+                f"Instruction: {request.instruction}\n"
+                f"Input Files: {len(request.files)}\n"
+                f"Changed Files: {response.changed_files}\n"
+                f"Changed Paths: {', '.join(changed_paths)}\n\n"
+                f"Explanation:\n{response.explanation[:1500]}"
+            )
+            await agentic_memory_service.create_memory(
+                user_id=user_id,
+                content=memory_content,
+                source_type="code",
+                source_id="project-refactor",
+                metadata={
+                    "safe_mode": request.safe_mode,
+                    "changed_files": response.changed_files,
+                    "warnings": response.warnings[:10],
+                },
+            )
+        except Exception:
+            # Memory persistence should not block API responses.
+            pass
+
+        return response
 
 
 code_workspace_controller = CodeWorkspaceController()
