@@ -54,6 +54,14 @@ Intellexa is built as an AI reasoning system, not a generic chatbot. It evaluate
 - Dual-response behavior in voice mode: short spoken reply, full answer plus sources/explanation stored in history.
 - Clean voice output policy: voice speaks concise final answers only (no URLs, source lists, or system/debug text).
 
+### Real-Time Collaborative Code Workspace
+- Monaco-based multi-user editor with Yjs CRDT synchronization and Socket.IO transport.
+- Realtime collaboration supports presence, awareness, and shared room state per file workspace.
+- AI assistance is integrated as a non-destructive layer: suggestions are proposed first, then manually applied.
+- AI suggestions are shared across collaborators as collaboration events so everyone can review before apply.
+- Apply flow uses patch-based Yjs transactions instead of full document replacement to reduce sync breakage.
+- Security scanning, test generation, intent coding, refactor, and explanation actions are available inside the same panel.
+
 ## System Architecture
 Intellexa uses a staged architecture that combines agentic decisioning with retrieval-aware reasoning.
 
@@ -77,6 +85,27 @@ flowchart LR
     L --> M[Supabase Conversation History]
 ```
 
+### Collaborative AI Editing Architecture
+```mermaid
+flowchart LR
+  U1[User A / User B] --> E[Monaco Editor]
+  E --> Y[Yjs Doc + Awareness]
+  Y --> S[Socket.IO Realtime Hub]
+  S --> E
+
+  U1 --> P[Ask AI]
+  P --> A[POST /code-assist]
+  A --> C[Context Builder: project_context + related_files + user_memory]
+  C --> L[LLM + Assist Orchestration]
+  L --> R[suggestion + diff + explanation]
+  R --> V[Shared AI Suggestion Event]
+  V --> U1
+
+  U1 --> AP[Apply Changes]
+  AP --> D[diff-match-patch + Yjs transaction]
+  D --> Y
+```
+
 ## How It Works
 1. User logs in via Clerk and sends a prompt from the dashboard.
 2. Intellexa runs Perspective Autopsy to inspect assumptions, framing, and potential bias.
@@ -89,6 +118,54 @@ flowchart LR
 9. Explanation and trust metrics are computed.
 10. Final response is returned with sources; when reframing is used, UI shows Reframed Question above the answer.
 11. Conversation history is stored in Supabase.
+
+### How Collaborative AI Assist Works
+1. User selects code (or entire file) and clicks Ask AI.
+2. Frontend sends `POST /code-assist` with code, prompt, and compact context fields.
+3. Backend returns a non-destructive assist payload with `suggestion`, `diff`, and `explanation`.
+4. The suggestion is visible in the AI panel and can be broadcast to collaborators as `ai_suggestion` context.
+5. When Apply Changes is clicked, patch hunks are merged into the active Yjs document via transaction.
+6. Changes propagate through realtime sync without full overwrite.
+7. If code changed while suggestion was pending, fuzzy patch merge attempts partial safe apply and logs warnings.
+
+### Code Assist API Contract (Collaborative)
+Request (`POST /code-assist`):
+```json
+{
+  "code": "...",
+  "prompt": "...",
+  "project_context": "...",
+  "user_memory": "...",
+  "selected_code": "...",
+  "related_files": [
+    { "path": "src/utils/helpers.ts", "language": "typescript", "content": "..." }
+  ]
+}
+```
+
+Response (non-destructive):
+```json
+{
+  "suggestion": "updated full-file suggestion",
+  "diff": "unified diff text",
+  "diff_hunks": [
+    {
+      "change_type": "replace",
+      "start_offset": 120,
+      "end_offset": 160,
+      "replacement": "..."
+    }
+  ],
+  "explanation": "what changed and why"
+}
+```
+
+### Stability and Performance Notes (Workspace)
+- Debounced assist and autocomplete requests to reduce noisy realtime traffic.
+- Context payload is clipped and limited (selected code + a few related files), not full project dumps each request.
+- Code size and payload fields are bounded in backend schema validation.
+- Manual apply gate prevents unsolicited AI edits in shared documents.
+- Patch-based apply preserves cursor/awareness behavior better than replace-all writes.
 
 ### Voice Mode Realtime Flow
 1. User speaks and Intellexa waits for a natural pause before submitting.
