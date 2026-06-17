@@ -475,7 +475,25 @@ function App() {
     };
   }, [isLiteMode, reducedMotion]);
 
-  const handleNavClick = () => setIsMobileMenuOpen(false);
+  const handleNavClick = useCallback((e) => {
+    if (e && e.preventDefault) {
+      e.preventDefault();
+      const targetId = e.currentTarget.getAttribute("href");
+      
+      setIsMobileMenuOpen(false);
+
+      if (lenisRef.current && targetId) {
+        lenisRef.current.scrollTo(targetId, { offset: -72 });
+        return;
+      }
+      
+      if (targetId) {
+        document.querySelector(targetId)?.scrollIntoView({ behavior: "smooth" });
+      }
+    } else {
+      setIsMobileMenuOpen(false);
+    }
+  }, []);
 
   const handleInitialize = useCallback(() => {
     setIsMobileMenuOpen(false);
@@ -512,15 +530,15 @@ function App() {
         {/* ── NAVBAR ──────────────────────────────── */}
         <header className={`navbar ${isScrolled ? "navbar-scrolled" : ""}`}>
           <div className="navbar-inner">
-            <a className="logo" href="#home">
+            <a className="logo" href="#home" onClick={handleNavClick}>
               [ INTELLEXA ]
             </a>
 
             <nav className="nav-center" aria-label="Primary">
-              <a href="#features">System</a>
-              <a href="#pipeline">Pipeline</a>
-              <a href="#trust-score">Trust Layer</a>
-              <a href="#demo">Demo</a>
+              <a href="#features" onClick={handleNavClick}>System</a>
+              <a href="#pipeline" onClick={handleNavClick}>Pipeline</a>
+              <a href="#trust-score" onClick={handleNavClick}>Trust Layer</a>
+              <a href="#demo" onClick={handleNavClick}>Demo</a>
             </nav>
 
             <div className="nav-right">
@@ -614,7 +632,7 @@ function App() {
               </div>
 
               {/* Spline Right Column */}
-              <div className="hero-spline" ref={heroSplineRef}>
+              <div className="hero-spline" ref={heroSplineRef} aria-hidden="true">
                 {isLiteMode ? (
                   <div className="spline-lite-fallback">
                     <span className="spline-lite-chip">[ ADAPTIVE PERFORMANCE MODE ]</span>
@@ -815,7 +833,13 @@ function App() {
 
           {/* ── TERMINAL CTA ─────────────────────── */}
           <section className="cta-section" id="demo">
-            <div className="cta-spline-background cta-surface-glow" aria-hidden="true" />
+            <div className="cta-spline-background cta-surface-glow" aria-hidden="true">
+              {!isLiteMode && canLoadHeroSpline && (
+                <Suspense fallback={null}>
+                  <Spline scene={SPLINE_SCENE_URL} />
+                </Suspense>
+              )}
+            </div>
 
             <div className="terminal-frame reveal-up">
               {/* 4-corner brackets */}

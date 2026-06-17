@@ -3369,6 +3369,14 @@ button {
 }
 
 /* ── RESPONSIVE ───────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .hero-headline {
+    font-size: clamp(32px, 5vw, 48px);
+  }
+  .hero-spline {
+    height: 70vh;
+  }
+}
 @media (max-width: 900px) {
   .hero-container {
     grid-template-columns: 1fr;
