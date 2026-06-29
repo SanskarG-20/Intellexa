@@ -6,7 +6,7 @@ Builds evolving, linked memory nodes on top of vector retrieval.
 import json
 import re
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.db.supabase import supabase
@@ -259,7 +259,7 @@ class AgenticMemoryService:
 
             merged = self._dedupe_keep_order(current + related_ids, 50)
             supabase.table("agent_memories").update(
-                {"related_memories": merged, "updated_at": datetime.utcnow().isoformat()}
+                {"related_memories": merged, "updated_at": datetime.now(timezone.utc).isoformat()}
             ).eq("id", memory_id).eq("user_id", user_id).execute()
         except Exception as exc:
             print(f"[AgenticMemory] Failed to update related list for {memory_id}: {exc}")
@@ -306,7 +306,7 @@ class AgenticMemoryService:
                         "tags": merged_tags,
                         "keywords": merged_keywords,
                         "related_memories": merged_related,
-                        "updated_at": datetime.utcnow().isoformat(),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
                     }
                 ).eq("id", related_id).eq("user_id", user_id).execute()
             except Exception as exc:

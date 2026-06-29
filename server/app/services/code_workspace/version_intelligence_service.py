@@ -9,7 +9,7 @@ import hashlib
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from app.db.supabase import supabase
@@ -74,11 +74,11 @@ class VersionIntelligenceService:
         if isinstance(value, datetime):
             return value
         if not value:
-            return datetime.utcnow()
+            return datetime.now(timezone.utc)
         try:
             return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         except Exception:
-            return datetime.utcnow()
+            return datetime.now(timezone.utc)
 
     def _to_entry(self, record: _VersionRecord) -> CodeVersionEntry:
         return CodeVersionEntry(
@@ -265,7 +265,7 @@ class VersionIntelligenceService:
             content=safe_content,
             language=str(language or "plaintext"),
             reason=str(reason or "manual"),
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
             content_hash=content_hash,
         )
 

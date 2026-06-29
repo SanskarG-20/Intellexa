@@ -76,9 +76,12 @@ class AutopsyService:
         async with httpx.AsyncClient(timeout=timeout) as client:
             try:
                 response = await client.post(
-                    f"{url}?key={api_key}",
+                    url,
                     json=payload,
-                    headers={"Content-Type": "application/json"}
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": api_key,
+                    }
                 )
                 
                 if response.status_code == 200:
