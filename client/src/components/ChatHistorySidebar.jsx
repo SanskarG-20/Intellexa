@@ -77,7 +77,7 @@ function ChatHistorySidebar({
         ) : null}
 
         {!isLoading
-          ? chats.map((chat) => {
+          ? chats.map((chat, index) => {
               const isActive = chat.id === activeChatId;
               const isDeleting = deletingChatId === chat.id;
 
@@ -86,6 +86,10 @@ function ChatHistorySidebar({
                   key={chat.id}
                   role="listitem"
                   className={`chat-sidebar-item-shell ${isActive ? "is-active" : ""}`}
+                  style={{
+                    animation: "shimmerPulse 0.6s ease backwards",
+                    animationDelay: `${index * 0.05}s`
+                  }}
                 >
                   <button
                     type="button"

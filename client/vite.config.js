@@ -10,6 +10,9 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
 
+          if (id.includes("monaco-editor") || id.includes("@monaco-editor")) return "vendor-monaco";
+          if (id.includes("@splinetool") || id.includes("spline")) return "vendor-spline";
+          if (id.includes("yjs") || id.includes("y-") || id.includes("diff-match-patch")) return "vendor-collab";
           if (id.includes("@tsparticles")) return "vendor-particles";
           if (id.includes("@clerk")) return "vendor-clerk";
           if (id.includes("react-router")) return "vendor-router";

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { ClerkProvider, ClerkLoaded, ClerkLoading } from "@clerk/clerk-react";
 import { BrowserRouter } from "react-router-dom";
+import { Toaster } from "sonner";
 import AppRoutes from "./AppRoutes";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./styles.css";
@@ -95,6 +96,7 @@ function App() {
       </ClerkLoading>
       <ClerkLoaded>
         <BrowserRouter>
+          <Toaster theme="dark" position="bottom-right" />
           <AppRoutes />
         </BrowserRouter>
       </ClerkLoaded>
