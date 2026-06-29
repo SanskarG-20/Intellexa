@@ -3,7 +3,7 @@
  * Supports drag-and-drop upload of PDFs, images, and videos.
  */
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useAuth } from "@clerk/clerk-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -36,7 +36,7 @@ function detectFileType(file) {
   return null;
 }
 
-function MemoryUpload({ onUploadComplete, onUploadError }) {
+function MemoryUpload({ onUploadComplete, onUploadError, initialFile, onFileHandled }) {
   const { getToken } = useAuth();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -97,6 +97,13 @@ function MemoryUpload({ onUploadComplete, onUploadError }) {
       handleFileSelection(files[0]);
     }
   }, [handleFileSelection]);
+
+  useEffect(() => {
+    if (initialFile) {
+      handleFileSelection(initialFile);
+      onFileHandled?.();
+    }
+  }, [initialFile, handleFileSelection, onFileHandled]);
 
   const handleUpload = useCallback(async () => {
     if (!selectedFile) return;

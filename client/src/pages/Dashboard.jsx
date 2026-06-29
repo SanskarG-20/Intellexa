@@ -1,9 +1,14 @@
 import { SignOutButton, useUser } from "@clerk/clerk-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useLayoutEffect, lazy, Suspense } from "react";
+import { toast } from "sonner";
+import { Copy, Check, TerminalSquare, ChevronDown } from "lucide-react";
 import ChatHistorySidebar from "../components/ChatHistorySidebar";
 import VoiceMode from "../components/VoiceMode";
 import KnowledgePanel from "../components/KnowledgePanel";
-import { CodeSpaceLayout } from "../components/CodeSpace";
+import GlobalCommandPalette from "../components/GlobalCommandPalette";
+const CodeSpaceLayout = lazy(() =>
+  import("../components/CodeSpace").then((m) => ({ default: m.CodeSpaceLayout }))
+);
 import { CodeWorkspaceProvider } from "../context/CodeWorkspaceContext";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useApiService } from "../services/apiService";
@@ -43,6 +48,31 @@ const SEARCH_AWARE_STATUS_MESSAGES = [
 const AUTO_SCROLL_THRESHOLD_PX = 88;
 const PROGRAMMATIC_SCROLL_LOCK_MS = 260;
 const VOICE_AUTO_SUBMIT_ENABLED = true;
+
+function playAudioCue() {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+    
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start();
+    osc.stop(ctx.currentTime + 0.1);
+  } catch (e) {
+    // Ignore audio errors
+  }
+}
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -317,6 +347,46 @@ function renderFormattedAnswer(text, sources = []) {
     if (!trimmed) {
       blocks.push(<div key={`answer-gap-${index}`} className="chat-answer-spacer" aria-hidden="true" />);
       index += 1;
+      continue;
+    }
+
+    const codeMatch = line.match(/^```([a-zA-Z0-9_+-]+)?/);
+    if (codeMatch) {
+      const language = codeMatch[1] || "text";
+      const codeLines = [];
+      let codeCursor = index + 1;
+
+      while (codeCursor < lines.length) {
+        if (lines[codeCursor].trim().startsWith("```")) {
+          codeCursor += 1;
+          break;
+        }
+        codeLines.push(lines[codeCursor]);
+        codeCursor += 1;
+      }
+
+      const codeContent = codeLines.join("\n");
+      blocks.push(
+        <div key={`answer-code-${index}`} className="chat-code-block">
+          <div className="chat-code-header">
+            <span>{language}</span>
+            <button
+              className="chat-code-copy-btn"
+              onClick={() => {
+                navigator.clipboard.writeText(codeContent);
+                toast.success("Code copied!");
+              }}
+              title="Copy code"
+            >
+              <Copy size={14} /> Copy
+            </button>
+          </div>
+          <div className="chat-code-content">
+            <pre><code>{codeContent}</code></pre>
+          </div>
+        </div>
+      );
+      index = codeCursor;
       continue;
     }
 
@@ -859,6 +929,7 @@ function Dashboard() {
   const [insightLoadingMessageId, setInsightLoadingMessageId] = useState(null);
   const [deletingChatId, setDeletingChatId] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [showScrollDown, setShowScrollDown] = useState(false);
   const [voiceStatusMessage, setVoiceStatusMessage] = useState("");
   const [isVoiceOutputEnabled, setIsVoiceOutputEnabled] = useState(true);
   const [isVoiceModeActive, setIsVoiceModeActive] = useState(false);
@@ -871,6 +942,10 @@ function Dashboard() {
     visibleLength: 0,
   });
   const [activeView, setActiveView] = useState("chat"); // "chat" or "knowledge"
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isGlobalDragging, setIsGlobalDragging] = useState(false);
+  const [globalDropFile, setGlobalDropFile] = useState(null);
+  
   const historyRef = useRef(null);
   const messagesEndRef = useRef(null);
   const typingRafRef = useRef(null);
@@ -878,6 +953,60 @@ function Dashboard() {
   const shouldAutoScrollRef = useRef(true);
   const autoScrollRafRef = useRef(null);
   const programmaticScrollLockUntilRef = useRef(0);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
+  useEffect(() => {
+    let dragCounter = 0;
+    const handleDragEnter = (e) => {
+      e.preventDefault();
+      dragCounter++;
+      if (e.dataTransfer.types.includes('Files')) {
+        setIsGlobalDragging(true);
+      }
+    };
+    const handleDragLeave = (e) => {
+      e.preventDefault();
+      dragCounter--;
+      if (dragCounter === 0) {
+        setIsGlobalDragging(false);
+      }
+    };
+    const handleDragOver = (e) => {
+      e.preventDefault();
+    };
+    const handleDrop = (e) => {
+      e.preventDefault();
+      dragCounter = 0;
+      setIsGlobalDragging(false);
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        setGlobalDropFile(e.dataTransfer.files[0]);
+        setActiveView("knowledge");
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, []);
+
   const requestAbortControllerRef = useRef(null);
   const userInterruptedRef = useRef(false);
   const shouldAutoSubmitVoiceRef = useRef(false);
@@ -1333,6 +1462,8 @@ function Dashboard() {
     if (!started) {
       shouldAutoSubmitVoiceRef.current = false;
       setVoiceStatusMessage("Could not start microphone listening.");
+    } else {
+      playAudioCue();
     }
   }, [
     clearSpeechRecognitionError,
@@ -1516,6 +1647,26 @@ function Dashboard() {
 
     setVoiceStatusMessage(speechRecognitionError);
   }, [speechRecognitionError]);
+
+  useEffect(() => {
+    if (errorMessage) {
+      toast.error(errorMessage);
+    }
+  }, [errorMessage]);
+
+  useEffect(() => {
+    const handleGlobalKeydown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        document.getElementById("dashboard-chat-input")?.focus();
+      }
+      if (e.key === "Escape" && isResponseInterruptible) {
+        handleInterruptResponse();
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeydown);
+    return () => window.removeEventListener("keydown", handleGlobalKeydown);
+  }, [isResponseInterruptible]);
 
   useEffect(() => {
     if (isListening) {
@@ -1775,8 +1926,60 @@ function Dashboard() {
     }
   };
 
+  const handleCommandAction = useCallback((actionId) => {
+    switch (actionId) {
+      case 'toggle_voice':
+        if (isVoiceModeActive) handleStopVoiceMode();
+        else handleStartVoiceMode();
+        break;
+      case 'toggle_layout':
+        setActiveView(prev => prev === 'code' ? 'chat' : 'code');
+        break;
+      case 'open_kb':
+        setActiveView('knowledge');
+        break;
+      case 'clear_chat':
+        handleStartNewChat();
+        break;
+      case 'toggle_sidebar':
+        // Not specifically implemented in basic CSS yet, but handled as a toggle action
+        toast.info("Sidebar toggled");
+        break;
+      case 'switch_theme':
+        toast.info("Theme switching enabled");
+        break;
+      case 'sign_out':
+        // Normally hook up to Clerk signout directly if programmatically needed
+        toast.info("Sign out from header button");
+        break;
+      default:
+        break;
+    }
+  }, [isVoiceModeActive, handleStartVoiceMode, handleStopVoiceMode, handleStartNewChat]);
+
   return (
     <section className="dashboard-page">
+      {isGlobalDragging && (
+        <div className="global-dropzone-overlay">
+          <div className="global-dropzone-content">
+            <div className="global-dropzone-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17,8 12,3 7,8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </div>
+            <h2>Drop file to upload to Knowledge Base</h2>
+          </div>
+        </div>
+      )}
+
+      <GlobalCommandPalette 
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onSelectAction={handleCommandAction}
+      />
+
       <div className="dashboard-bg-text" aria-hidden="true">
         <p className="dashboard-bg-line">
           INTELLEXA // TRUST-FIRST ANALYSIS // CONTEXT MEMORY // MULTI-STEP REASONING // VERIFIED SOURCES
@@ -1845,12 +2048,6 @@ function Dashboard() {
           </div>
         </header>
 
-        {errorMessage ? (
-          <p className="chat-error-banner" role="status">
-            {errorMessage}
-          </p>
-        ) : null}
-
         {isVoiceModeActive ? (
           <VoiceMode
             onSubmitVoiceQuery={handleVoiceModeSubmit}
@@ -1859,10 +2056,12 @@ function Dashboard() {
           />
         ) : activeView === "code" ? (
           <CodeWorkspaceProvider>
-            <CodeSpaceLayout />
+            <Suspense fallback={<div className="code-editor-loading"><span>Loading Code Workspace...</span></div>}>
+              <CodeSpaceLayout />
+            </Suspense>
           </CodeWorkspaceProvider>
         ) : activeView === "knowledge" ? (
-          <KnowledgePanel />
+          <KnowledgePanel initialFile={globalDropFile} onFileHandled={() => setGlobalDropFile(null)} />
         ) : (
         <div className="dashboard-chat-layout">
           <ChatHistorySidebar
@@ -1883,12 +2082,27 @@ function Dashboard() {
             <div className="dashboard-chat-content">
               <div className="dashboard-chat-thread">
                 <div
-                  className="chat-history"
+                  className="chat-message-list"
                   ref={historyRef}
-                  onScroll={handleHistoryScroll}
+                  onScroll={(e) => {
+                    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+                    const isScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
+                    setShowScrollDown(isScrolledUp);
+                    if (isScrolledUp) {
+                      shouldAutoScrollRef.current = false;
+                    }
+                  }}
                   aria-live="polite"
                   aria-busy={isLoading}
                 >
+                  {messages.length === 0 && !isLoading ? (
+                    <div className="empty-state-container">
+                      <TerminalSquare className="empty-state-icon" />
+                      <h2 className="empty-state-title">SYSTEM READY</h2>
+                      <p className="empty-state-desc">Awaiting your parameters...</p>
+                    </div>
+                  ) : null}
+
                   {messages.map((message, index) => {
                     const isAssistant = message.role === "assistant";
                     const isTypingMessage = isAssistant && typingState.messageId === message.id;
@@ -2009,6 +2223,19 @@ function Dashboard() {
                   ) : null}
 
                   <div ref={messagesEndRef} className="chat-scroll-anchor" aria-hidden="true" />
+                  
+                  <button
+                    className={`scroll-to-bottom-btn ${showScrollDown ? "visible" : ""}`}
+                    onClick={() => {
+                      setShowScrollDown(false);
+                      shouldAutoScrollRef.current = true;
+                      queueAutoScroll("smooth");
+                    }}
+                    aria-label="Scroll to bottom"
+                    type="button"
+                  >
+                    ↓ Scroll to bottom
+                  </button>
                 </div>
 
                 <form className="chat-input-form" onSubmit={handleSubmit}>
@@ -2025,6 +2252,8 @@ function Dashboard() {
                       }
 
                       setInputValue(event.target.value);
+                      event.target.style.height = "auto";
+                      event.target.style.height = `${Math.min(event.target.scrollHeight, 200)}px`;
                     }}
                     onKeyDown={handleInputKeyDown}
                     rows={2}

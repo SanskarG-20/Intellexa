@@ -7,8 +7,8 @@ import { useState, useCallback } from "react";
 import MemoryUpload from "./MemoryUpload";
 import KnowledgeBase from "./KnowledgeBase";
 
-function KnowledgePanel({ onUploadComplete }) {
-  const [activeTab, setActiveTab] = useState("documents");
+function KnowledgePanel({ onUploadComplete, initialFile, onFileHandled }) {
+  const [activeTab, setActiveTab] = useState(initialFile ? "upload" : "documents");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const handleUploadComplete = useCallback((result) => {
@@ -43,6 +43,8 @@ function KnowledgePanel({ onUploadComplete }) {
           <MemoryUpload 
             onUploadComplete={handleUploadComplete}
             onUploadError={(error) => console.error("Upload error:", error)}
+            initialFile={initialFile}
+            onFileHandled={onFileHandled}
           />
         )}
       </div>
