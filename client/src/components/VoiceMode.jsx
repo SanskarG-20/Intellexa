@@ -5,6 +5,7 @@ import {
   speakText,
   stopSpeaking,
 } from "../utils/speechSynthesis";
+import VoiceVisualizer from "./VoiceVisualizer";
 
 const SILENCE_TIMEOUT_MS = 5000;
 const LISTEN_RESTART_MS = 420;
@@ -561,14 +562,11 @@ function VoiceMode({ onSubmitVoiceQuery, onStopVoiceMode, onInterruptActiveRespo
         <p className="voice-mode-kicker">Voice Conversation Mode</p>
         <h2 className="voice-mode-title">Hands-free Intellexa</h2>
 
-        <div
-          className={`voice-mode-orb ${isListening ? "is-listening" : ""}${
-            isThinking ? " is-thinking" : ""
-          }${isSpeaking ? " is-speaking" : ""}`}
-          aria-hidden="true"
-        >
-          <span />
-        </div>
+        <VoiceVisualizer 
+          isListening={isListening} 
+          isThinking={isThinking} 
+          isSpeaking={isSpeaking} 
+        />
 
         <p className="voice-mode-status">{statusText}</p>
 
