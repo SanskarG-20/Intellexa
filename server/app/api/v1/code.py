@@ -4,7 +4,7 @@ FastAPI routes for Code Space file management and AI assistance.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -328,7 +328,7 @@ async def create_code_file(
         file.language = _detect_language(file.filename)
     
     file_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     
     try:
         # Check for duplicate filename in same path
@@ -449,7 +449,7 @@ async def update_code_file(
         existing_filename = str(existing_file.get('filename') or '')
         
         # Build update data
-        update_data = {'updated_at': datetime.utcnow().isoformat()}
+        update_data = {'updated_at': datetime.now(timezone.utc).isoformat()}
         
         if update.filename is not None:
             update_data['filename'] = update.filename
@@ -630,7 +630,7 @@ async def import_code_files(
     for file_item in request.files:
         try:
             file_id = str(uuid.uuid4())
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             
             language = file_item.language or _detect_language(file_item.filename)
             

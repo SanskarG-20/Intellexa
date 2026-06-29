@@ -5,7 +5,7 @@ FastAPI routes for the Multimodal Context Memory System.
 
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks
@@ -83,11 +83,11 @@ def _detect_file_type(content_type: str, filename: str) -> str:
 def _parse_datetime(value: Optional[str]) -> datetime:
     """Parse ISO datetime value defensively."""
     if not value:
-        return datetime.utcnow()
+        return datetime.now(timezone.utc)
     try:
         return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
     except Exception:
-        return datetime.utcnow()
+        return datetime.now(timezone.utc)
 
 
 # ============================================================================
@@ -315,7 +315,7 @@ async def _update_document_status(
     
     update_data = {
         'status': status,
-        'updated_at': datetime.utcnow().isoformat()
+        'updated_at': datetime.now(timezone.utc).isoformat()
     }
     if error_message:
         update_data['error_message'] = error_message
