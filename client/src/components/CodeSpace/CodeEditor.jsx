@@ -64,6 +64,7 @@ function CodeEditor({
   const [theme, setTheme] = useState('dark');
   const [fontSize, setFontSize] = useState(14);
   const [minimap, setMinimap] = useState(true);
+  const [cursorStats, setCursorStats] = useState({ line: 1, column: 1, selectionLength: 0 });
 
   const collaborationEnabled = Boolean(
     collaboration?.enabled
@@ -205,6 +206,14 @@ function CodeEditor({
     editor.focus();
     registerAutocompleteProvider();
 
+    editor.onDidChangeCursorPosition((event) => {
+      setCursorStats(prev => ({
+        ...prev,
+        line: event.position.lineNumber,
+        column: event.position.column
+      }));
+    });
+
     editor.onDidChangeCursorSelection((event) => {
       const model = editor.getModel();
       if (!model || typeof onSelectionChange !== 'function') {
@@ -212,15 +221,17 @@ function CodeEditor({
       }
 
       const selection = event.selection;
+      let selectionLength = 0;
       if (!selection || selection.isEmpty()) {
         onSelectionChange('');
-        return;
+      } else {
+        const selectedText = model.getValueInRange(selection);
+        selectionLength = selectedText?.length || 0;
+        onSelectionChange(selectedText || '');
       }
-
-      const selectedText = model.getValueInRange(selection);
-      onSelectionChange(selectedText || '');
+      setCursorStats(prev => ({ ...prev, selectionLength }));
     });
-  }, [onRunCode, onSave, registerAutocompleteProvider]);
+  }, [onRunCode, onSave, registerAutocompleteProvider, onSelectionChange]);
 
   const handleChange = useCallback((value) => {
     if (collaborationEnabled) {
@@ -366,6 +377,33 @@ function CodeEditor({
           <span>Syncing...</span>
         </div>
       )}
+      
+      <div className="code-editor-statusbar">
+        <div className="code-editor-statusbar-left">
+          <span className="statusbar-item">
+            Ln {cursorStats.line}, Col {cursorStats.column}
+          </span>
+          {cursorStats.selectionLength > 0 && (
+            <span className="statusbar-item">
+              {cursorStats.selectionLength} selected
+            </span>
+          )}
+          <span className="statusbar-item">
+            Length: {file.content?.length || 0}
+          </span>
+        </div>
+        <div className="code-editor-statusbar-right">
+          <span className="statusbar-item statusbar-lang">
+            {mapMonacoLanguage(file.language)}
+          </span>
+          <span className="statusbar-item">UTF-8</span>
+          {collaboration?.enabled && (
+            <span className={`statusbar-item statusbar-sync ${collaborationConnectionState === 'connected' ? 'connected' : ''}`}>
+              {collaborationConnectionState === 'connected' ? '✓ Synced' : 'Syncing...'}
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
