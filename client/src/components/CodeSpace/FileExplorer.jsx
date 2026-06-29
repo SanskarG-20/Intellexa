@@ -31,12 +31,15 @@ function FileExplorer({
       if (a.isFolder !== b.isFolder) {
         return a.isFolder ? -1 : 1;
       }
-      return a.filename.localeCompare(b.filename);
+      const nameA = String(a.filename || a.name || '');
+      const nameB = String(b.filename || b.name || '');
+      return nameA.localeCompare(nameB);
     });
 
     // Build tree from flat list
     for (const file of sorted) {
-      const pathParts = file.path.split('/').filter(Boolean);
+      const pathString = String(file.path || '');
+      const pathParts = pathString.split('/').filter(Boolean);
       let current = tree;
 
       for (const part of pathParts) {
