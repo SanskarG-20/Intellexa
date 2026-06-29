@@ -32,6 +32,8 @@ class CodeExecutionService:
         "shutil",
         "ctypes",
         "multiprocessing",
+        "builtins",
+        "importlib",
     }
     DANGEROUS_CALLS = {
         "open",
@@ -41,6 +43,7 @@ class CodeExecutionService:
         "__import__",
         "input",
         "breakpoint",
+        "__builtins__",
     }
 
     @staticmethod
@@ -72,9 +75,9 @@ class CodeExecutionService:
                 base = (node.module or "").split(".")[0]
                 if base in self.DANGEROUS_IMPORTS:
                     return f"Unsafe import blocked: {base}"
-            elif isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id in self.DANGEROUS_CALLS:
-                    return f"Unsafe function blocked: {node.func.id}"
+            elif isinstance(node, ast.Name):
+                if node.id in self.DANGEROUS_CALLS:
+                    return f"Unsafe reference blocked: {node.id}"
 
         return None
 
