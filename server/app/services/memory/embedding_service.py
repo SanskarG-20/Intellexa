@@ -7,6 +7,7 @@ Model: nomic-ai/nomic-embed-text-v1.5 (768 dims, 8192 token context)
 """
 
 import asyncio
+import httpx
 import hashlib
 import logging
 import os
@@ -195,6 +196,10 @@ class EmbeddingService:
         self._use_fallback = False
         self._validated = False
         self._initialized = False
+        self._use_gemini_api = False
+        self._use_together_api = False
+        self.api_key_gemini = ""
+        self.api_key_together = ""
     
     def _initialize(self) -> None:
         """Initialize the embedding model."""
@@ -209,9 +214,49 @@ class EmbeddingService:
         )
 
         if force_fallback or is_railway:
+            # Check if cloud embedding models can be used instead of hash fallback
+            self.api_key_gemini = (settings.GEMINI_API_KEY or "").strip()
+            self.api_key_together = (settings.TOGETHER_API_KEY or "").strip()
+
+            if self.api_key_gemini and self.api_key_gemini != "your_google_ai_studio_api_key_here":
+                self._use_gemini_api = True
+                self._model_name = "gemini/text-embedding-004"
+                self._dimension = 768
+                print("[EmbeddingService] Using Gemini Cloud API for embeddings (Railway / fallback mode).")
+                self._initialized = True
+                return
+
+            if self.api_key_together and self.api_key_together != "your_together_api_key_here":
+                self._use_together_api = True
+                self._model_name = settings.TOGETHER_EMBEDDING_MODEL
+                self._dimension = 768
+                print(f"[EmbeddingService] Using Together AI Cloud API for embeddings ({settings.TOGETHER_EMBEDDING_MODEL}) (Railway / fallback mode).")
+                self._initialized = True
+                return
+
             reason = "configuration" if force_fallback else "Railway runtime detection"
             print(f"[EmbeddingService] [INFO] Using hash fallback embeddings ({reason}).")
             self._use_fallback = True
+            self._initialized = True
+            return
+
+        # Check if cloud embedding models can be used
+        self.api_key_gemini = (settings.GEMINI_API_KEY or "").strip()
+        self.api_key_together = (settings.TOGETHER_API_KEY or "").strip()
+
+        if self.api_key_gemini and self.api_key_gemini != "your_google_ai_studio_api_key_here":
+            self._use_gemini_api = True
+            self._model_name = "gemini/text-embedding-004"
+            self._dimension = 768
+            print("[EmbeddingService] Using Gemini Cloud API for embeddings.")
+            self._initialized = True
+            return
+
+        if self.api_key_together and self.api_key_together != "your_together_api_key_here":
+            self._use_together_api = True
+            self._model_name = settings.TOGETHER_EMBEDDING_MODEL
+            self._dimension = 768
+            print(f"[EmbeddingService] Using Together AI Cloud API for embeddings ({settings.TOGETHER_EMBEDDING_MODEL}).")
             self._initialized = True
             return
 
@@ -250,7 +295,7 @@ class EmbeddingService:
         if not self._initialized:
             self._initialize()
 
-        if self._use_fallback:
+        if self._use_fallback or self._use_gemini_api or self._use_together_api:
             return
         if self._model is None or not self._model.is_loaded:
             raise EmbeddingServiceError(
@@ -293,6 +338,28 @@ class EmbeddingService:
         # Truncate if needed
         truncated = text[:MAX_TEXT_LENGTH] if len(text) > MAX_TEXT_LENGTH else text
         
+        # Use cloud Gemini API if enabled
+        if self._use_gemini_api:
+            try:
+                embeddings = await self._embed_via_gemini_api([truncated])
+                return embeddings[0]
+            except Exception as e:
+                logger.error(f"[EmbeddingService] Gemini Cloud embedding failed: {e}")
+                if skip_on_error:
+                    return None
+                return generate_fallback_embedding(text, self._dimension)
+
+        # Use cloud Together AI API if enabled
+        if self._use_together_api:
+            try:
+                embeddings = await self._embed_via_together_api([truncated])
+                return embeddings[0]
+            except Exception as e:
+                logger.error(f"[EmbeddingService] Together AI Cloud embedding failed: {e}")
+                if skip_on_error:
+                    return None
+                return generate_fallback_embedding(text, self._dimension)
+
         # Use fallback if no model
         if self._use_fallback:
             return generate_fallback_embedding(text, self._dimension)
@@ -355,6 +422,42 @@ class EmbeddingService:
         # Prepare result array
         result: List[Optional[List[float]]] = [None] * len(texts)
         
+        # Use cloud Gemini API if enabled
+        if self._use_gemini_api:
+            try:
+                valid_texts = [t[:MAX_TEXT_LENGTH] for _, t in valid_items]
+                embeddings_list = await self._embed_via_gemini_api(valid_texts)
+                for (orig_idx, _), emb in zip(valid_items, embeddings_list):
+                    result[orig_idx] = emb
+                for i, emb in enumerate(result):
+                    if emb is None:
+                        result[i] = [0.0] * self._dimension
+                return result
+            except Exception as e:
+                logger.error(f"[EmbeddingService] Gemini Cloud batch embedding failed: {e}")
+                for i, t in enumerate(texts):
+                    if result[i] is None:
+                        result[i] = generate_fallback_embedding(t, self._dimension) if not skip_failures else [0.0] * self._dimension
+                return result
+
+        # Use cloud Together AI API if enabled
+        if self._use_together_api:
+            try:
+                valid_texts = [t[:MAX_TEXT_LENGTH] for _, t in valid_items]
+                embeddings_list = await self._embed_via_together_api(valid_texts)
+                for (orig_idx, _), emb in zip(valid_items, embeddings_list):
+                    result[orig_idx] = emb
+                for i, emb in enumerate(result):
+                    if emb is None:
+                        result[i] = [0.0] * self._dimension
+                return result
+            except Exception as e:
+                logger.error(f"[EmbeddingService] Together AI Cloud batch embedding failed: {e}")
+                for i, t in enumerate(texts):
+                    if result[i] is None:
+                        result[i] = generate_fallback_embedding(t, self._dimension) if not skip_failures else [0.0] * self._dimension
+                return result
+
         # Use fallback if no model
         if self._use_fallback:
             for i, t in enumerate(texts):
@@ -411,6 +514,50 @@ class EmbeddingService:
     def get_model_name(self) -> Optional[str]:
         """Get the loaded model name."""
         return self._model_name
+
+    async def _embed_via_gemini_api(self, texts: List[str]) -> List[List[float]]:
+        """Call Gemini API for embeddings in a single request."""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents?key={self.api_key_gemini}"
+        requests = [
+            {
+                "model": "models/text-embedding-004",
+                "content": {
+                    "parts": [{"text": text}]
+                }
+            }
+            for text in texts
+        ]
+        payload = {"requests": requests}
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            response.raise_for_status()
+            data = response.json()
+            embeddings = [item["values"] for item in data["embeddings"]]
+            return embeddings
+
+    async def _embed_via_together_api(self, texts: List[str]) -> List[List[float]]:
+        """Call Together AI API for embeddings in a single request."""
+        url = "https://api.together.xyz/v1/embeddings"
+        payload = {
+            "model": settings.TOGETHER_EMBEDDING_MODEL,
+            "input": texts
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key_together}",
+            "Content-Type": "application/json"
+        }
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            embeddings = [item["embedding"] for item in data["data"]]
+            return embeddings
 
 
 # ============================================================================
